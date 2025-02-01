@@ -1,6 +1,8 @@
 use leptos::*;
 use wasm_bindgen_test::*;
 
+pub mod connect_component;
+
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[component]
