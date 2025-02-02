@@ -34,6 +34,40 @@ pub fn FriendsConnect(
     }
 }
 
+async fn create_new_connection(api_base: &str, player_id: &str) -> Result<Connection, reqwest::Error> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&format!("{}/connections", api_base))
+        .json(&serde_json::json!({ "player_id": player_id }))
+        .send()
+        .await?;
+        
+    response.json::<Connection>().await
+}
+
+pub fn get_stored_player_id() -> Option<String> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    storage.get_item("player-id").ok()?
+}
+
+#[wasm_bindgen_test]
+fn test_get_stored_player_id() {
+    // First ensure no player-id exists
+    let window = web_sys::window().unwrap();
+    let storage = window.local_storage().unwrap().unwrap();
+    storage.remove_item("player-id").unwrap();
+    
+    // Initial check should return None
+    assert!(get_stored_player_id().is_none());
+    
+    // Set a player-id
+    storage.set_item("player-id", "test-123").unwrap();
+    
+    // Now we should get that value back
+    assert_eq!(get_stored_player_id().unwrap(), "test-123");
+}
+
 #[wasm_bindgen_test]
 fn test_friends_connect_renders() {
     mount_to_body(|| view! { <FriendsConnect /> });
@@ -45,17 +79,6 @@ fn test_friends_connect_renders() {
         
     let heading = container.query_selector("h2").unwrap().unwrap();
     assert_eq!(heading.text_content().unwrap(), "Connect with Friends");
-}
-
-async fn create_new_connection(api_base: &str, player_id: &str) -> Result<Connection, reqwest::Error> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&format!("{}/connections", api_base))
-        .json(&serde_json::json!({ "player_id": player_id }))
-        .send()
-        .await?;
-        
-    response.json::<Connection>().await
 }
 
 #[wasm_bindgen_test]
