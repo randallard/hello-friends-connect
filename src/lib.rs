@@ -1,4 +1,5 @@
 use leptos::*;
+use leptos::prelude::*;
 use wasm_bindgen_test::*;
 
 pub mod connect_component;

@@ -1,8 +1,11 @@
 // src/connect_component.rs
 use leptos::*;
+use leptos::prelude::*;  
 use wasm_bindgen_test::*;
 use serde::{Serialize, Deserialize};
 use web_sys::Storage;
+use uuid::Uuid;
+use gloo_timers::future::TimeoutFuture;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConnectionStatus {
@@ -27,6 +30,21 @@ wasm_bindgen_test_configure!(run_in_browser);
 pub fn FriendsConnect(
     #[prop(default = "http://localhost:8080")] api_base: &'static str,
 ) -> impl IntoView {
+    Effect::new( move |_| {
+        if get_stored_player_id().is_none() {
+            // No player ID exists, create one
+            let window = web_sys::window().expect("no global window exists");
+            let storage = window.local_storage()
+                .expect("failed to get localStorage")
+                .expect("localStorage not available");
+                
+            let new_id = uuid::Uuid::new_v4().to_string();
+            storage.set_item("player-id", &new_id)
+                .expect("failed to store player-id");
+        }
+        || ()
+    });
+
     view! {
         <div id="friends-connect-container" class="max-w-md mx-auto p-4">
             <h2 class="text-xl font-bold mb-4">"Connect with Friends"</h2>
@@ -49,6 +67,25 @@ pub fn get_stored_player_id() -> Option<String> {
     let window = web_sys::window()?;
     let storage = window.local_storage().ok()??;
     storage.get_item("player-id").ok()?
+}
+
+#[wasm_bindgen_test]
+async fn test_friends_connect_initializes_player_id() {
+    // First ensure no player-id exists
+    let window = web_sys::window().unwrap();
+    let storage = window.local_storage().unwrap().unwrap();
+    storage.remove_item("player-id").unwrap();
+    
+    // Mount the component
+    mount_to_body(|| view! { <FriendsConnect /> });
+
+    let _ = gloo_timers::future::TimeoutFuture::new(1500).await;
+    
+    // After mounting, we should have a player-id in localStorage
+    let player_id = storage.get_item("player-id").unwrap().unwrap();
+    
+    // Verify it's a valid UUID
+    assert!(uuid::Uuid::parse_str(&player_id).is_ok());
 }
 
 #[wasm_bindgen_test]
