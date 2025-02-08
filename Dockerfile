@@ -22,7 +22,8 @@ RUN chown rust:rust /app
 USER rust
 
 # Install wasm-pack and trunk with explicit version
-RUN cargo install trunk --version 0.17.5 && \
+RUN rustup target add wasm32-unknown-unknown && \
+    cargo install --locked trunk && \
     curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
 # Copy project files with proper ownership
