@@ -1,20 +1,41 @@
 # Build stage
-FROM rust:1.75 as builder
+FROM rust:1.75-slim-bullseye as builder
 
-# Install wasm-pack
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    nodejs \
+    npm \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install trunk
-RUN cargo install trunk
+# Install wasm-pack and trunk
+RUN cargo install trunk && \
+    curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-# Create a new empty shell project
+# Create and set working directory
 WORKDIR /app
+
+# Copy project files
 COPY . .
 
-# Build the project
+# Install npm dependencies and build Tailwind
+RUN npm install -D tailwindcss && \
+    npx tailwindcss init && \
+    npx tailwindcss -i ./input.css -o ./style/output.css
+
+# Build the application
 RUN trunk build --release
 
-# Production stage
+# Runtime stage
 FROM nginx:alpine
+
+# Copy the built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
