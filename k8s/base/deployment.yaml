@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: friends-connect
+spec:
+  selector:
+    matchLabels:
+      app: friends-connect
+  template:
+    metadata:
+      labels:
+        app: friends-connect
+    spec:
+      containers:
+      - name: friends-connect
+        image: ghcr.io/yourusername/friends-connect
+        ports:
+        - containerPort: 80
