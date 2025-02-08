@@ -1,0 +1,89 @@
+{move || show_connection.get().then(|| view! {
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-slate-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-white">
+                        <h3 class="text-xl font-bold mb-4">"Make a connection!"</h3>
+                        <div class="flex flex-col gap-4">
+                            // Connection name input
+                            <div>
+                                <label class="block text-sm font-medium mb-1">
+                                    {move || match connection_mode.get() {
+                                        ConnectionModalMode::Add => "Connect to:",
+                                        ConnectionModalMode::View => "Connection name:",
+                                    }}
+                                </label>
+                                <input
+                                    type="text"
+                                    class="w-full px-4 py-2 rounded bg-slate-700 border border-slate-600 text-white"
+                                    class:cursor-not-allowed=move || matches!(connection_mode.get(), ConnectionModalMode::View)
+                                    readonly=move || matches!(connection_mode.get(), ConnectionModalMode::View)
+                                    prop:value=connection_name
+                                    on:input=move |ev| {
+                                        if matches!(connection_mode.get(), ConnectionModalMode::Add) {
+                                            set_connection_name.set(event_target_value(&ev))
+                                        }
+                                    }
+                                />
+                                // Error alert
+                                {move || show_name_error.get().then(|| view! {
+                                    <div class="mt-2">
+                                        <Alert
+                                            variant=AlertVariant::Destructive
+                                            title="Empty Name"
+                                            message="Please enter a name for your connection."
+                                        />
+                                    </div>
+                                })}
+                            </div>
+
+                            // Connection link display
+                            <div>
+                                <label class="block text-sm font-medium mb-1">
+                                    "Connection Link"
+                                </label>
+                                <input
+                                    type="text"
+                                    readonly=true
+                                    class="w-full px-4 py-2 rounded bg-slate-700 border border-slate-600 text-white cursor-pointer"
+                                    prop:value=connection_link
+                                    on:click=move |ev| {
+                                        if let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) {
+                                            input.select();
+                                        }
+                                    }
+                                />
+                            </div>
+
+                            // Buttons
+                            <div class="flex justify-end gap-4">
+                                <button
+                                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+                                    on:click=move |_| {
+                                        set_show_name_error.set(false);
+                                        set_show_connection.set(false);
+                                    }
+                                >
+                                    "Cancel"
+                                </button>
+                                <button
+                                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+                                    disabled=move || connection_name.get().trim().is_empty()
+                                    on:click=move |_| {
+                                        if connection_name.get().trim().is_empty() {
+                                            set_show_name_error.set(true);
+                                        } else {
+                                            set_show_name_error.set(false);
+                                            set_show_connection.set(false);
+                                            set_connection_name.set(String::new());
+                                        }
+                                    }
+                                >
+                                    "OK"
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            })}
+        </div>
+    }
+}

@@ -48,8 +48,9 @@ trunk serve --open
 
 Run WASM tests:
 ```bash
-wasm-pack test --headless --chrome
+wasm-pack test --headless --firefox
 ```
+on the first run this failed to test - but a firefox update ran automatically and I ran the command again successfully
 
 Run Rust tests:
 ```bash
