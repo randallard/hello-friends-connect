@@ -4,22 +4,26 @@ FROM rust:1.75 as builder
 WORKDIR /app
 COPY . .
 
-# Install Node.js and npm
-RUN apt-get update && apt-get install -y \
+# Install Node.js and npm with explicit version
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update && apt-get install -y \
     nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install and configure Tailwind
-RUN npm install -D tailwindcss && \
-    npx tailwindcss init
+# Verify Node.js and npm installation
+RUN node --version && npm --version
 
-# Install trunk
+# Install Tailwind CSS globally and initialize
+RUN npm install -g tailwindcss && \
+    export PATH="/app/node_modules/.bin:$PATH" && \
+    tailwindcss init
+
+# Install trunk and add wasm target
 RUN cargo install trunk && \
     rustup target add wasm32-unknown-unknown
 
 # Build the application
-RUN npx tailwindcss -i ./input.css -o ./style/output.css || true
+RUN tailwindcss -i ./input.css -o ./style/output.css || true
 RUN trunk build --release
 
 # Runtime stage
