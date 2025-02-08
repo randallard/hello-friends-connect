@@ -72,6 +72,9 @@ jobs:
             RUST_VERSION=1.75
           platforms: linux/amd64
           provenance: false
+          no-cache: true
+          output: type=docker,push=true
+          progress: plain
 
       - name: Install OCI CLI
         run: |
