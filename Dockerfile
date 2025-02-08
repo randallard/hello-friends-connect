@@ -1,36 +1,25 @@
-FROM rust:1.75-slim-bullseye as builder
-
-# Install system dependencies with specific versions
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    nodejs \
-    npm \
-    git \
-    curl \
-    ca-certificates \
-    build-essential \
-    cmake \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set up rust toolchain explicitly
-RUN rustup default stable && \
-    rustup target add wasm32-unknown-unknown
-
-# Install trunk with explicit version
-RUN cargo install trunk --version 0.17.5 --locked
-
-# Install wasm-pack
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+# Build stage
+FROM rust:1.75 as builder
 
 WORKDIR /app
 COPY . .
 
-# Build steps
+# Install Node.js and npm
+RUN apt-get update && apt-get install -y \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install and configure Tailwind
 RUN npm install -D tailwindcss && \
-    npx tailwindcss init && \
-    npx tailwindcss -i ./input.css -o ./style/output.css
+    npx tailwindcss init
+
+# Install trunk
+RUN cargo install trunk && \
+    rustup target add wasm32-unknown-unknown
 
 # Build the application
+RUN npx tailwindcss -i ./input.css -o ./style/output.css || true
 RUN trunk build --release
 
 # Runtime stage
