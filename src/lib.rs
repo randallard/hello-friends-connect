@@ -1,6 +1,4 @@
 use leptos::*;
-use leptos::prelude::*;
-use wasm_bindgen_test::*;
 
 pub mod connect_component;
 use connect_component::FriendsConnect;
@@ -15,6 +13,8 @@ pub fn App() -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    
+    use leptos::prelude::*;
     use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
