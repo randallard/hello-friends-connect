@@ -3,7 +3,7 @@ target = "index.html"
 dist = "dist"
 
 [watch]
-ignore = ["dist/**"]
+ignore = ["dist/"]
 
 [serve]
 address = "127.0.0.1"

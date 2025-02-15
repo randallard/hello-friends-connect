@@ -1,32 +1,45 @@
-FROM rust:1.75 as builder
+FROM rust:1.78-slim-bullseye
 
-WORKDIR /app
-COPY . .
+# Prevent tzdata from requesting interactive input
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Node.js and npm
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get update && apt-get install -y \
+# Install basic dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
     nodejs \
+    npm \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create dist directory
-RUN mkdir -p dist
+RUN npm install n -g && n stable
 
-# Install Tailwind locally in the project
-RUN npm install -D tailwindcss
+# Add wasm target
+RUN rustup target add wasm32-unknown-unknown
 
-# Build Tailwind CSS
-RUN npx tailwindcss -i ./input.css -o ./dist/tailwind.css
+# Install wasm-pack
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-# Install trunk and add wasm target
-RUN cargo install trunk && \
-    rustup target add wasm32-unknown-unknown
+# Install trunk
+RUN cargo install trunk
 
-# Build the application
-RUN trunk build --release
+# Set working directory
+WORKDIR /app
 
-# Runtime stage
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Copy project files
+COPY . .
+
+# Install Tailwind CSS
+# RUN npm install -D tailwindcss@latest
+# RUN npx tailwindcss init
+
+# # Build the project
+RUN trunk build
+
+# # Expose port
+EXPOSE 8080
+
+# # Start command
+CMD ["trunk", "serve", "--address", "0.0.0.0"]

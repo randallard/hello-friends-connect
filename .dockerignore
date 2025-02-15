@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+.github/
+
+# Docker
+.docker
+.dockerignore
+Dockerfile*
+
+# Rust
+target/
+debug/
+**/*.rs.bk
+*.pdb
+
+# Development
+.env
+*.log
+*.sh
+*.md
+.vscode/
+tests/
+examples/
+
+# Kubernetes
+k8s/
+*.yaml
