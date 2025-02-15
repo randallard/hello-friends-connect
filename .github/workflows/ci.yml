@@ -35,7 +35,7 @@ jobs:
     - name: Run tests
       run: |
         cargo test
-        wasm-pack test --headless --firefox src/lib.rs src/connect_component.rs
+        wasm-pack test --headless --firefox
 
   lint:
     runs-on: ubuntu-latest
