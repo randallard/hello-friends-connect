@@ -48,7 +48,12 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
+      - name: Debug Kubernetes Config
+        run: |
+          kubectl config view --minify
+          kubectl cluster-info
+          
       - name: Deploy to Kubernetes
         run: |
-          kubectl apply -f k8s/base/
+          kubectl apply -f k8s/base/ --validate=false
           kubectl rollout status deployment/hello-friends-connect

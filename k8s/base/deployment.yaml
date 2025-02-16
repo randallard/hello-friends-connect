@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: hello-friends-connect
-        image: ghcr.io/yourusername/hello-friends-connect:latest
+        image: ghcr.io/randallard/hello-friends-connect:latest
         ports:
         - containerPort: 8080
         resources:
