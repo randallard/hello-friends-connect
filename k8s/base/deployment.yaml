@@ -1,18 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: friends-connect
+  name: hello-friends-connect
+  labels:
+    app: hello-friends-connect
 spec:
+  replicas: 2
   selector:
     matchLabels:
-      app: friends-connect
+      app: hello-friends-connect
   template:
     metadata:
       labels:
-        app: friends-connect
+        app: hello-friends-connect
     spec:
       containers:
-      - name: friends-connect
-        image: ghcr.io/yourusername/friends-connect
+      - name: hello-friends-connect
+        image: ghcr.io/yourusername/hello-friends-connect:latest
         ports:
-        - containerPort: 80
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

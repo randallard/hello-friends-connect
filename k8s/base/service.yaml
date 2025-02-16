@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: friends-connect
+  name: hello-friends-connect
 spec:
   selector:
-    app: friends-connect
+    app: hello-friends-connect
   ports:
   - port: 80
-    targetPort: 80
+    targetPort: 8080
   type: ClusterIP

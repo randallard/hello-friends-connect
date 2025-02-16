@@ -3,33 +3,13 @@ name: Deploy to Oracle Cloud K8s
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      
-      - name: Run tests
-        run: wasm-pack test --headless --firefox
-
   build-and-deploy:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,15 +17,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -58,7 +29,6 @@ jobs:
           password: ${{ secrets.CR_PAT }}
 
       - name: Build and push Docker image
-        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -68,20 +38,6 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
           provenance: false
-
-      - name: Install OCI CLI
-        run: |
-          curl -L -O https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh
-          chmod +x install.sh
-          ./install.sh --accept-all-defaults
-          echo "/home/runner/bin" >> $GITHUB_PATH
-
-      - name: Configure OCI CLI
-        run: |
-          mkdir -p ~/.oci
-          echo "${{ secrets.OCI_CONFIG }}" > ~/.oci/config
-          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/key.pem
-          chmod 600 ~/.oci/config ~/.oci/key.pem
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
@@ -95,5 +51,4 @@ jobs:
       - name: Deploy to Kubernetes
         run: |
           kubectl apply -f k8s/base/
-          kubectl set image deployment/friends-connect friends-connect=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          kubectl rollout status deployment/friends-connect
+          kubectl rollout status deployment/hello-friends-connect
