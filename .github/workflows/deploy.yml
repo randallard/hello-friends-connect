@@ -16,7 +16,11 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -28,30 +32,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT }}
 
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          provenance: false
-
+          
       - name: Install OCI CLI
         run: |
           curl -L -O https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh
           chmod +x install.sh
           ./install.sh --accept-all-defaults
           echo "/home/runner/bin" >> $GITHUB_PATH
-
+          
       - name: Configure OCI CLI
         run: |
           mkdir -p ~/.oci
           echo "${{ secrets.OCI_CONFIG }}" > ~/.oci/config
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/key.pem
-          chmod 600 ~/.oci/config ~/.oci/key.pem
+          chmod 600 ~/.oci/config ~/.oci/key.pem        
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
@@ -62,7 +76,20 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
           
-      - name: Deploy to Kubernetes
+      - name: Update deployment image
         run: |
-          kubectl apply -f k8s/base/ --validate=false
+          kubectl set image deployment/hello-friends-connect hello-friends-connect=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           kubectl rollout status deployment/hello-friends-connect
+
+      - name: Debug deployment
+        if: failure()
+        run: |
+          echo "Checking pod status..."
+          kubectl get pods -l app=hello-friends-connect
+          echo "\nChecking pod details..."
+          kubectl describe pods -l app=hello-friends-connect
+          echo "\nChecking pod logs..."
+          for pod in $(kubectl get pods -l app=hello-friends-connect -o name); do
+            echo "\nLogs for $pod:"
+            kubectl logs $pod --tail=50
+          done          
