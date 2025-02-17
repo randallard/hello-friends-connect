@@ -14,8 +14,6 @@ spec:
       labels:
         app: hello-friends-connect
     spec:
-      imagePullSecrets:
-      - name: ghcr-secret
       containers:
       - name: hello-friends-connect
         image: ghcr.io/randallard/hello-friends-connect:latest
