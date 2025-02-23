@@ -18,11 +18,11 @@ spec:
       - name: hello-friends-connect
         image: ghcr.io/randallard/hello-friends-connect:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 80   # Changed from 8080 to match nginx port
         resources:
           requests:
-            memory: "64Mi"
-            cpu: "100m"
+            memory: "128Mi"   # Increased from 64Mi
+            cpu: "250m"       # Increased from 100m
           limits:
-            memory: "128Mi"
-            cpu: "200m"
+            memory: "256Mi"   # Increased from 128Mi
+            cpu: "500m"       # Increased from 200m
