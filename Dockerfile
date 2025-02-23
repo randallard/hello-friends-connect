@@ -1,4 +1,4 @@
-FROM rust:1.78-slim-bullseye
+FROM rust:1.78-slim-bullseye as builder
 
 # Prevent tzdata from requesting interactive input
 ENV DEBIAN_FRONTEND=noninteractive
@@ -31,15 +31,13 @@ WORKDIR /app
 # Copy project files
 COPY . .
 
-# Install Tailwind CSS
-# RUN npm install -D tailwindcss@latest
-# RUN npx tailwindcss init
+RUN npm install n -g && n stable    
+RUN npm install tailwindcss @tailwindcss/cli
+RUN npx @tailwindcss/cli -i ./input.css -o ./output.css
+RUN trunk build --release
 
-# # Build the project
-RUN trunk build
-
-# # Expose port
-EXPOSE 8080
-
-# # Start command
-CMD ["trunk", "serve", "--address", "0.0.0.0"]
+# Expose port
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
