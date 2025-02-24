@@ -14,15 +14,18 @@ spec:
       labels:
         app: hello-friends-connect
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
       - name: hello-friends-connect
         image: ghcr.io/randallard/hello-friends-connect:latest
+        imagePullPolicy: Always
         ports:
-        - containerPort: 80   # Changed from 8080 to match nginx port
+        - containerPort: 80   
         resources:
           requests:
-            memory: "128Mi"   # Increased from 64Mi
-            cpu: "250m"       # Increased from 100m
+            memory: "128Mi"   
+            cpu: "250m"       
           limits:
-            memory: "256Mi"   # Increased from 128Mi
-            cpu: "500m"       # Increased from 200m
+            memory: "256Mi"   
+            cpu: "500m"       
