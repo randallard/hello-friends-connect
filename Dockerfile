@@ -1,4 +1,4 @@
-FROM rust:1.78-slim-bullseye as builder
+FROM rust:1.78 as builder
 
 # Prevent tzdata from requesting interactive input
 ENV DEBIAN_FRONTEND=noninteractive
