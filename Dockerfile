@@ -34,6 +34,9 @@ COPY . .
 RUN npm install n -g && n stable    
 RUN npm install tailwindcss @tailwindcss/cli
 RUN npx @tailwindcss/cli -i ./input.css -o ./output.css
+
+RUN cat Trunk.toml
+RUN echo "Building with public_url = /hello-friends/"
 RUN trunk build --release
 
 # Expose port
