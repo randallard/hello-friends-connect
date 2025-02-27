@@ -37,7 +37,7 @@ RUN npx @tailwindcss/cli -i ./input.css -o ./output.css
 
 RUN cat Trunk.toml
 RUN echo "Building with public_url = /hello-friends/"
-RUN trunk build --release
+RUN trunk build --release --public-url="/hello-friends/"
 
 # Expose port
 FROM nginx:alpine
