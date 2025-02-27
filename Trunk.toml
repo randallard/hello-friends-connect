@@ -1,8 +1,6 @@
 [build]
 target = "index.html"
 dist = "dist"
-release=true
-public_url = "/hello-friends/"
 
 [watch]
 ignore = ["dist/"]
