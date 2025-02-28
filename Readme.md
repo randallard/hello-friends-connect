@@ -3,6 +3,10 @@
 
 A real-time web application for connecting friends with [friends-connect](https://github.com/randallard/friends-connect) with Leptos and Rust.
 
+I have this running at
+
+http://64.181.233.1/hello-friends
+
 ## Dependencies
 
 - Rust (latest stable)
