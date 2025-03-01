@@ -22,7 +22,10 @@ pub fn ConnectionModal(
                             type="text"
                             class="w-full px-4 py-2 rounded bg-slate-700 border border-slate-600 text-white"
                             prop:value=connection_name
-                            on:input=move |ev| on_name_change(event_target_value(&ev))
+                            on:input=move |ev| {
+                                let value = event_target_value(&ev);
+                                on_name_change.run(value);
+                            }
                         />
                         {move || show_name_error.get().then(|| view! {
                             <div class="mt-2 text-red-500 text-sm">
@@ -34,13 +37,17 @@ pub fn ConnectionModal(
                     <div class="flex justify-end gap-4">
                         <button
                             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
-                            on:click=move |_| on_cancel()
+                            on:click=move |_| {
+                                on_cancel.run(());
+                            }
                         >
                             "Cancel"
                         </button>
                         <button
                             class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
-                            on:click=move |_| on_submit()
+                            on:click=move |_| {
+                                on_submit.run(());
+                            }
                         >
                             "OK"
                         </button>
