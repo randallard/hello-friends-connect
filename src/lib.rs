@@ -3,6 +3,8 @@ use leptos::*;
 pub mod connect_component;
 use connect_component::FriendsConnect;
 
+pub mod connection_modal;
+
 #[component]
 pub fn App() -> impl IntoView {
     view! { 

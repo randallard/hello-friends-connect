@@ -2,6 +2,8 @@ use leptos::*;
 use leptos::prelude::*;  
 use serde::{Serialize, Deserialize};
 
+use crate::connection_modal::ConnectionModal; 
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConnectionModalMode {
     Add,
@@ -47,76 +49,29 @@ pub fn FriendsConnect() -> impl IntoView {
         || ()
     });
 
-    view! {
-        <div id="friends-connect-container" class="max-w-md mx-auto p-4">
-            <h2 class="text-xl font-bold mb-4">"Connect with Friends"</h2>
-            <button
-                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
-                on:click=move |_| {
-                    set_show_name_error.set(false); 
-                    set_show_connection.set(true)
+    {move || show_connection.get().then(|| view! {
+        <ConnectionModal
+            connection_name=connection_name
+            show_name_error=show_name_error
+            on_name_change=Callback::new(move |new_name| {
+                set_show_name_error.set(false);
+                set_connection_name.set(new_name);
+            })
+            on_cancel=Callback::new(move |_| {
+                set_show_name_error.set(false);
+                set_show_connection.set(false);
+            })
+            on_submit=Callback::new(move |_| {
+                if connection_name.get().trim().is_empty() {
+                    set_show_name_error.set(true);
+                } else {
+                    set_show_name_error.set(false);
+                    set_show_connection.set(false);
+                    set_connection_name.set(String::new());
                 }
-            >
-                "New Connection"
-            </button>
-
-            {move || show_connection.get().then(|| view! {
-                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-slate-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-white">
-                        <h3 class="text-xl font-bold mb-4">"Make a connection!"</h3>
-                        <div class="flex flex-col gap-4">
-                            <div>
-                                <label class="block text-sm font-medium mb-1">
-                                    "Connect to:"
-                                </label>
-                                <input
-                                    type="text"
-                                    class="w-full px-4 py-2 rounded bg-slate-700 border border-slate-600 text-white"
-                                    prop:value=connection_name
-                                    on:input=move |ev| {
-                                        set_show_name_error.set(false);
-                                        set_connection_name.set(event_target_value(&ev))
-                                    }
-                                />
-                                {move || show_name_error.get().then(|| view! {
-                                    <div class="mt-2 text-red-500 text-sm">
-                                        "Please enter a name for your connection."
-                                    </div>
-                                })}
-                            </div>
-
-
-                            <div class="flex justify-end gap-4">
-                                <button
-                                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded"
-                                    on:click=move |_| {
-                                        set_show_name_error.set(false);
-                                        set_show_connection.set(false)
-                                    }
-                                >
-                                    "Cancel"
-                                </button>
-                                <button
-                                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
-                                    on:click=move |_| {
-                                        if connection_name.get().trim().is_empty() {
-                                            set_show_name_error.set(true);
-                                        } else {
-                                            set_show_name_error.set(false);
-                                            set_show_connection.set(false);
-                                            set_connection_name.set(String::new());
-                                        }
-                                    }
-                                >
-                                    "OK"
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            })}
-        </div>
-    }
+            })
+        />
+    })}
 }
 
 pub fn get_stored_player_id() -> Option<String> {
