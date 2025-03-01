@@ -49,10 +49,10 @@ pub fn FriendsConnect() -> impl IntoView {
     });
 
     view! {
-        <div id="friends-connect-container" class="max-w-md mx-auto p-4">
-            <h2 class="text-xl font-bold mb-4">"Connect with Friends"</h2>
+        <div id="friends-connect-container" class="max-w-md mx-auto p-4 bg-gray-900 text-gray-100">
+            <h2 class="text-xl font-bold mb-4 text-gray-100">"Connect with Friends"</h2>
             <button
-                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white"
+                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
                 on:click=move |_| {
                     set_show_name_error.set(false); 
                     set_show_connection.set(true);

@@ -8,7 +8,7 @@ pub mod connection_modal;
 #[component]
 pub fn App() -> impl IntoView {
     view! { 
-        <FriendsConnect />
+            <FriendsConnect />
     }
 }
 
