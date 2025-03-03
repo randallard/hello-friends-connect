@@ -1,5 +1,8 @@
+use wasm_bindgen_test::*;
 use leptos::*;
 use leptos::prelude::*;
+use web_sys::console::log;
+use crate::connection_utils::get_link_id_from_url; 
 
 #[component]
 pub fn ConnectionModal(
@@ -9,6 +12,24 @@ pub fn ConnectionModal(
     #[prop(into)] on_cancel: Callback<()>,
     #[prop(into)] on_submit: Callback<()>,
 ) -> impl IntoView {
+
+    let url_link_id = get_link_id_from_url();
+    if let Some(ref link_id) = url_link_id {
+        console_log!("ConnectionModal found URL link ID: {}", link_id);
+    } else {
+        console_log!("ConnectionModal did not find a URL link ID");
+    }
+    
+    // Check for URL link ID and set default name if found
+    if let Some(link_id) = url_link_id {
+        if !link_id.is_empty() {
+            let prefix_len = std::cmp::min(6, link_id.len());
+            let default_name = format!("Connection {}", &link_id[..prefix_len]);
+            console_log!("Setting default name: {}", default_name);
+            on_name_change.run(default_name);
+        }
+    }
+
     view! {
         <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
             <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-gray-100 border border-gray-700">
@@ -31,7 +52,7 @@ pub fn ConnectionModal(
                             "This is just what you'll see on your list - they'll set their own account name for themself when they connect"
                         </div>
                         {move || show_name_error.get().then(|| view! {
-                            <div class="mt-2 text-red-400 text-sm">
+                            <div class="mt-2 text-red-400 text-sm" data-test-id="connection-name-error">
                                 "Please enter a name for your connection."
                             </div>
                         })}

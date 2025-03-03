@@ -4,11 +4,15 @@ pub mod connect_component;
 use connect_component::FriendsConnect;
 
 pub mod connection_modal;
+pub mod connection_utils;
+
+#[cfg(test)]
+mod connection_utils_test;
 
 #[component]
 pub fn App() -> impl IntoView {
     view! { 
-            <FriendsConnect />
+        <FriendsConnect />
     }
 }
 
