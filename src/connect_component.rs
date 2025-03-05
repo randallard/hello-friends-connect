@@ -72,14 +72,13 @@ pub fn FriendsConnect() -> impl IntoView {
         }
     });
 
-    // Create a connection with the API
     let create_connection = move || {
         let name = connection_name.get();
         if name.trim().is_empty() {
             set_show_name_error.set(true);
             return;
         }
-
+    
         let player_id = get_stored_player_id().unwrap_or_else(|| {
             let new_id = uuid::Uuid::new_v4().to_string();
             if let Some(window) = web_sys::window() {
@@ -89,7 +88,7 @@ pub fn FriendsConnect() -> impl IntoView {
             }
             new_id
         });
-
+    
         let name_clone = name.clone();
         console_log(&format!("Creating connection with name: {}", name));
         
@@ -112,7 +111,12 @@ pub fn FriendsConnect() -> impl IntoView {
                     let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
                     
                     // Update current connection
-                    set_current_connection.set(Some(connection));
+                    set_current_connection.set(Some(connection.clone()));
+                    
+                    // Add to connections list
+                    set_connections.update(|conns| {
+                        conns.push(connection);
+                    });
                     
                     // Close the modal
                     set_show_connection.set(false);
@@ -219,7 +223,7 @@ pub fn FriendsConnect() -> impl IntoView {
             }}
             
             <button
-                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
+                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100 mb-4"
                 on:click=move |_| {
                     set_show_name_error.set(false); 
                     set_show_connection.set(true);
@@ -227,6 +231,53 @@ pub fn FriendsConnect() -> impl IntoView {
             >
                 "New Connection"
             </button>
+
+            // Display the list of connections
+            <div class="mt-4">
+                {move || {
+                    let connections_list = connections.get();
+                    if connections_list.is_empty() {
+                        view! {
+                            <div class="text-gray-400 text-sm mt-2">
+                                "No connections yet. Click 'New Connection' to create one."
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class="border border-gray-700 rounded overflow-hidden">
+                                <For
+                                    each=move || connections.get()
+                                    key=|conn| conn.id.clone()
+                                    let:connection
+                                >
+                                    {move || {
+                                        let conn_id = connection.id.clone();
+                                        let name = get_connection_name(&conn_id).unwrap_or_else(|| "Unnamed Connection".to_string());
+                                        let status = connection.status.clone();
+                                        
+                                        view! {
+                                            <div class="flex justify-between items-center p-3 border-b border-gray-700 last:border-b-0">
+                                                <div class="font-medium">{name}</div>
+                                                <div>
+                                                    <button 
+                                                        class="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-gray-100"
+                                                    >
+                                                        {match status {
+                                                            ConnectionStatus::Pending => "Pending",
+                                                            ConnectionStatus::Active => "Active",
+                                                            ConnectionStatus::Expired => "Expired",
+                                                        }}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    }}
+                                </For>
+                            </div>
+                        }.into_any()
+                    }
+                }}
+            </div>
 
             {move || show_connection.get().then(|| view! {
                 <ConnectionModal
@@ -258,6 +309,15 @@ pub fn FriendsConnect() -> impl IntoView {
             })}
         </div>
     }
+}
+
+fn get_connection_name(connection_id: &str) -> Option<String> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    
+    // Try to get the name from localStorage
+    let name_key = format!("conn-name-{}", connection_id);
+    storage.get_item(&name_key).ok()?
 }
 
 pub fn get_stored_player_id() -> Option<String> {
