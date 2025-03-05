@@ -209,7 +209,6 @@ pub async fn get_connection_by_link_id(link_id: &str) -> Result<Connection, JsVa
     Ok(connection_data)
 }
 
-// Save a connection in local storage for later reference
 pub fn save_connection_to_local_storage(connection: &Connection, friendly_name: &str) -> Option<()> {
     let window = window()?;
     let storage = window.local_storage().ok()??;
@@ -221,6 +220,7 @@ pub fn save_connection_to_local_storage(connection: &Connection, friendly_name: 
         link_id: String,
         friendly_name: String,
         created_at: i64,
+        expires_at: i64, // Add expires_at field
     }
     
     let saved = SavedConnection {
@@ -228,6 +228,7 @@ pub fn save_connection_to_local_storage(connection: &Connection, friendly_name: 
         link_id: connection.link_id.clone(),
         friendly_name: friendly_name.to_string(),
         created_at: connection.created_at,
+        expires_at: connection.expires_at, // Save the expiration time
     };
     
     // Save in saved connections collection

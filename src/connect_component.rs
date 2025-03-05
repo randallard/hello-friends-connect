@@ -7,6 +7,7 @@ use web_sys::console;
 
 use crate::connection_modal::ConnectionModal; 
 use crate::connection_utils;
+use crate::connection_item::ConnectionItem;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConnectionModalMode {
@@ -69,6 +70,52 @@ pub fn FriendsConnect() -> impl IntoView {
             
             // Auto-open the connection modal
             set_show_connection.set(true);
+        }
+    });
+
+    Effect::new(move |_| {
+        // Use the existing load_saved_connections function
+        let saved_connections = connection_utils::load_saved_connections();
+        
+        if !saved_connections.is_empty() {
+            console_log("Loading saved connections from local storage");
+            
+            // Convert saved connections to Connection objects and add to connections signal
+            for saved_conn in saved_connections {
+                if let (Some(id), Some(link_id), Some(created_at)) = (
+                    saved_conn.get("id").and_then(|v| v.as_str()),
+                    saved_conn.get("link_id").and_then(|v| v.as_str()),
+                    saved_conn.get("created_at").and_then(|v| v.as_i64())
+                ) {
+                    // Get expires_at from saved connection or calculate it if not present
+                    let expires_at = saved_conn.get("expires_at")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or_else(|| created_at + 86400000); // 24 hours from creation
+                    
+                    // Set status based on expiration time
+                    let status = if expires_at > js_sys::Date::now() as i64 {
+                        ConnectionStatus::Active
+                    } else {
+                        ConnectionStatus::Expired
+                    };
+                    
+                    let connection = Connection {
+                        id: id.to_string(),
+                        link_id: link_id.to_string(),
+                        players: Vec::new(), // We don't store this in localStorage
+                        created_at,
+                        status,
+                        expires_at,
+                    };
+                    
+                    // Add to connections list if not already present
+                    set_connections.update(|conns| {
+                        if !conns.iter().any(|c| c.id == connection.id) {
+                            conns.push(connection);
+                        }
+                    });
+                }
+            }
         }
     });
 
@@ -202,26 +249,6 @@ pub fn FriendsConnect() -> impl IntoView {
                 }
             }}
             
-            {move || {
-                if let Some(connection) = current_connection.get() {
-                    view! {
-                        <div class="bg-green-900 text-green-100 p-4 rounded mb-4">
-                            <p>"Connected! Share this link with a friend to join:"</p>
-                            <div class="flex mt-2">
-                                <input
-                                    type="text"
-                                    readonly=true
-                                    class="w-full px-4 py-2 rounded-l bg-gray-800 border border-gray-700 text-gray-100"
-                                    value=format!("?link={}", connection.link_id)
-                                />
-                            </div>
-                        </div>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }
-            }}
-            
             <button
                 class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100 mb-4"
                 on:click=move |_| {
@@ -253,23 +280,8 @@ pub fn FriendsConnect() -> impl IntoView {
                                     {move || {
                                         let conn_id = connection.id.clone();
                                         let name = get_connection_name(&conn_id).unwrap_or_else(|| "Unnamed Connection".to_string());
-                                        let status = connection.status.clone();
-                                        
                                         view! {
-                                            <div class="flex justify-between items-center p-3 border-b border-gray-700 last:border-b-0">
-                                                <div class="font-medium">{name}</div>
-                                                <div>
-                                                    <button 
-                                                        class="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-gray-100"
-                                                    >
-                                                        {match status {
-                                                            ConnectionStatus::Pending => "Pending",
-                                                            ConnectionStatus::Active => "Active",
-                                                            ConnectionStatus::Expired => "Expired",
-                                                        }}
-                                                    </button>
-                                                </div>
-                                            </div>
+                                            <ConnectionItem connection=connection.clone() name=name />
                                         }
                                     }}
                                 </For>
