@@ -9,6 +9,9 @@ pub mod connection_utils;
 #[cfg(test)]
 mod connection_utils_test;
 
+// #[cfg(test)]
+// mod not_used_integration_tests_not_used;
+
 #[component]
 pub fn App() -> impl IntoView {
     view! { 

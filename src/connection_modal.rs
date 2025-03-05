@@ -1,8 +1,11 @@
-use wasm_bindgen_test::*;
 use leptos::*;
 use leptos::prelude::*;
-use web_sys::console::log;
-use crate::connection_utils::get_link_id_from_url; 
+use web_sys::{window, UrlSearchParams, console};
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::spawn_local;
+
+use crate::connection_utils::get_link_id_from_url;
+use crate::connect_component::{Connection, get_stored_player_id};
 
 #[component]
 pub fn ConnectionModal(
@@ -12,28 +15,71 @@ pub fn ConnectionModal(
     #[prop(into)] on_cancel: Callback<()>,
     #[prop(into)] on_submit: Callback<()>,
 ) -> impl IntoView {
-
-    let url_link_id = get_link_id_from_url();
-    if let Some(ref link_id) = url_link_id {
-        console_log!("ConnectionModal found URL link ID: {}", link_id);
-    } else {
-        console_log!("ConnectionModal did not find a URL link ID");
-    }
+    // Create signals for the link ID
+    let (link_id, set_link_id) = signal(String::new());
+    let (loading_link, set_loading_link) = signal(false);
+    let (link_error, set_link_error) = signal(String::new());
     
-    // Check for URL link ID and set default name if found
-    if let Some(link_id) = url_link_id {
-        if !link_id.is_empty() {
-            let prefix_len = std::cmp::min(6, link_id.len());
-            let default_name = format!("Connection {}", &link_id[..prefix_len]);
-            console_log!("Setting default name: {}", default_name);
+    // Function for console logging
+    let console_log = move |msg: &str| {
+        console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+    };
+    
+    // Check URL for link parameter or request a new link ID
+    let initialize_link_id = move || {
+        if let Some(url_link_id) = get_link_id_from_url() {
+            // Found link ID in URL - we're joining an existing connection
+            console_log(&format!("Found link ID in URL: {}", url_link_id));
+            set_link_id.set(url_link_id.clone());
+            
+            // Suggest a default name
+            let prefix_len = std::cmp::min(6, url_link_id.len());
+            let default_name = format!("Connection {}", &url_link_id[..prefix_len]);
             on_name_change.run(default_name);
+        } else {
+            // No link ID in URL - we're creating a new connection
+            // Request a new link ID from the server right away
+            request_new_link_id(set_link_id, set_loading_link, set_link_error);
         }
-    }
-
+    };
+    
+    // Initialize on component creation
+    initialize_link_id();
+    
+    // Function to generate the full connection link
+    let get_connection_link = move || {
+        if loading_link.get() {
+            return "Generating link...".to_string();
+        }
+        
+        if !link_error.get().is_empty() {
+            return format!("Error: {}", link_error.get());
+        }
+        
+        if link_id.get().is_empty() {
+            return "Waiting for link...".to_string();
+        }
+        
+        let window = window().expect("should have window");
+        let location = window.location();
+        let origin = location.origin().unwrap_or_else(|_| "http://64.181.233.1".to_string());
+        let pathname = location.pathname().unwrap_or_else(|_| "/".to_string());
+        
+        format!("{}{}?link={}", origin, pathname, link_id.get())
+    };
+    
     view! {
         <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
             <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-gray-100 border border-gray-700">
-                <h3 class="text-xl font-bold mb-4 text-gray-100">"Make a connection!"</h3>
+                <h3 class="text-xl font-bold mb-4 text-gray-100">
+                    {move || {
+                        if get_link_id_from_url().is_some() {
+                            "Join a connection!"
+                        } else {
+                            "Make a connection!"
+                        }
+                    }}
+                </h3>
                 <div class="flex flex-col gap-4">
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-200">
@@ -62,34 +108,98 @@ pub fn ConnectionModal(
                         <label class="block text-sm font-medium mb-1 text-gray-200">
                              "Connection Link"
                         </label>
-                        <input
-                            type="text"
-                            class="w-full px-4 py-2 rounded bg-gray-900 border border-gray-700 text-gray-100"
-                            readonly=true
-                            value="connection link will appear here"
-                        />
-
-                        <div class="flex justify-end gap-4 mt-4">
-                            <button
-                                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
-                                on:click=move |_| {
-                                    on_cancel.run(());
-                                }
-                            >
-                                "Cancel"
-                            </button>
-                            <button
-                                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
-                                on:click=move |_| {
-                                    on_submit.run(());
-                                }
-                            >
-                                "OK"
-                            </button>
+                        <div class="flex gap-2">
+                            <input
+                                type="text"
+                                class="w-full px-4 py-2 rounded bg-gray-900 border border-gray-700 text-gray-100"
+                                readonly=true
+                                prop:value=get_connection_link
+                            />
                         </div>
+                        <div class="mt-1 text-sm text-gray-400">
+                            {move || {
+                                if get_link_id_from_url().is_some() {
+                                    "Using link from URL to join an existing connection"
+                                } else if loading_link.get() {
+                                    "Generating link..."
+                                } else if !link_error.get().is_empty() {
+                                    "Error generating link. Will create on submission."
+                                } else if !link_id.get().is_empty() {
+                                    "Share this link with your friend to connect"
+                                } else {
+                                    "Waiting for link generation..."
+                                }
+                            }}
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-4 mt-4">
+                        <button
+                            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
+                            on:click=move |_| {
+                                on_cancel.run(());
+                            }
+                        >
+                            "Cancel"
+                        </button>
+                        <button
+                            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
+                            on:click=move |_| on_submit.run(())
+                        >
+                            {move || {
+                                if get_link_id_from_url().is_some() {
+                                    "Join"
+                                } else {
+                                    "Create"
+                                }
+                            }}
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
+    }
+}
+
+// Function to request a new link ID from the server immediately when the modal opens
+fn request_new_link_id(
+    set_link_id: WriteSignal<String>,
+    set_loading: WriteSignal<bool>,
+    set_error: WriteSignal<String>
+) {
+    // Check if we have a player ID
+    if let Some(player_id) = get_stored_player_id() {
+        // Set loading state
+        set_loading.set(true);
+        set_error.set(String::new());
+        
+        // Clone player ID for the async closure
+        let player_id_clone = player_id.clone();
+        
+        // Spawn async task to request link ID
+        spawn_local(async move {
+            // Use the existing create_connection method but with a placeholder name
+            // The actual connection will be created properly when form is submitted
+            match crate::connection_utils::create_connection(&player_id_clone).await {
+                Ok(connection) => {
+                    // Extract the link ID
+                    let new_link_id = connection.link_id.clone();
+                    
+                    // Update the UI
+                    set_link_id.set(new_link_id);
+                    set_loading.set(false);
+                },
+                Err(e) => {
+                    // Handle error, but don't block the form submission
+                    let error_msg = format!("Failed to generate link: {:?}", e);
+                    console::log_1(&wasm_bindgen::JsValue::from_str(&error_msg));
+                    set_error.set(error_msg);
+                    set_loading.set(false);
+                }
+            }
+        });
+    } else {
+        // No player ID available
+        set_error.set("No player ID found".to_string());
     }
 }

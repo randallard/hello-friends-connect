@@ -1,8 +1,12 @@
 use leptos::*;
 use leptos::prelude::*;  
 use serde::{Serialize, Deserialize};
+use std::ops::Not;
+use wasm_bindgen_futures::spawn_local;
+use web_sys::console;
 
 use crate::connection_modal::ConnectionModal; 
+use crate::connection_utils;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConnectionModalMode {
@@ -29,12 +33,22 @@ pub struct Connection {
 
 #[component]
 pub fn FriendsConnect() -> impl IntoView {
-
     let (show_connection, set_show_connection) = signal(false);
     let (connection_name, set_connection_name) = signal(String::new());
     let (show_name_error, set_show_name_error) = signal(false);
+    let (api_error, set_api_error) = signal(String::new());
+    let (current_connection, set_current_connection) = signal(None::<Connection>);
 
-    Effect::new( move |_| {
+    // Signal for active connections
+    let (connections, set_connections) = signal(Vec::<Connection>::new());
+
+    // Helper for logging
+    let console_log = move |msg: &str| {
+        console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+    };
+
+    // Effect to ensure a player ID exists
+    Effect::new(move |_| {
         if get_stored_player_id().is_none() {
             // No player ID exists, create one
             let window = web_sys::window().expect("no global window exists");
@@ -48,9 +62,162 @@ pub fn FriendsConnect() -> impl IntoView {
         }
     });
 
+    // Effect to check for link ID in URL
+    Effect::new(move |_| {
+        if let Some(link_id) = connection_utils::get_link_id_from_url() {
+            console_log(&format!("Found link ID in URL: {}", link_id));
+            
+            // Auto-open the connection modal
+            set_show_connection.set(true);
+        }
+    });
+
+    // Create a connection with the API
+    let create_connection = move || {
+        let name = connection_name.get();
+        if name.trim().is_empty() {
+            set_show_name_error.set(true);
+            return;
+        }
+
+        let player_id = get_stored_player_id().unwrap_or_else(|| {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    let _ = storage.set_item("player-id", &new_id);
+                }
+            }
+            new_id
+        });
+
+        let name_clone = name.clone();
+        console_log(&format!("Creating connection with name: {}", name));
+        
+        // Reset error state
+        set_api_error.set(String::new());
+        
+        spawn_local(async move {
+            match connection_utils::create_connection(&player_id).await {
+                Ok(connection) => {
+                    console_log(&format!("Connection created: {}", connection.id));
+                    
+                    // Save friendly name for this connection
+                    if let Some(window) = web_sys::window() {
+                        if let Ok(Some(storage)) = window.local_storage() {
+                            let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone);
+                        }
+                    }
+                    
+                    // Save the connection for later
+                    let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
+                    
+                    // Update current connection
+                    set_current_connection.set(Some(connection));
+                    
+                    // Close the modal
+                    set_show_connection.set(false);
+                    set_connection_name.set(String::new());
+                },
+                Err(e) => {
+                    let error_msg = format!("Error creating connection: {:?}", e);
+                    console_log(&error_msg);
+                    set_api_error.set(error_msg);
+                }
+            }
+        });
+    };
+
+    // Join a connection with the API
+    let join_connection = move |link_id: String| {
+        let name = connection_name.get();
+        if name.trim().is_empty() {
+            set_show_name_error.set(true);
+            return;
+        }
+
+        let player_id = get_stored_player_id().unwrap_or_else(|| {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    let _ = storage.set_item("player-id", &new_id);
+                }
+            }
+            new_id
+        });
+
+        let name_clone = name.clone();
+        console_log(&format!("Joining connection with link ID: {}", link_id));
+        
+        // Reset error state
+        set_api_error.set(String::new());
+        
+        spawn_local(async move {
+            match connection_utils::join_connection(&link_id, &player_id).await {
+                Ok(connection) => {
+                    console_log(&format!("Connection joined: {}", connection.id));
+                    
+                    // Save friendly name for this connection
+                    if let Some(window) = web_sys::window() {
+                        if let Ok(Some(storage)) = window.local_storage() {
+                            let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone);
+                        }
+                    }
+                    
+                    // Save the connection for later
+                    let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
+                    
+                    // Update current connection
+                    set_current_connection.set(Some(connection));
+                    
+                    // Close the modal
+                    set_show_connection.set(false);
+                    set_connection_name.set(String::new());
+                },
+                Err(e) => {
+                    let error_msg = format!("Error joining connection: {:?}", e);
+                    console_log(&error_msg);
+                    set_api_error.set(error_msg);
+                }
+            }
+        });
+    };
+
     view! {
         <div id="friends-connect-container" class="max-w-md mx-auto p-4 bg-gray-900 text-gray-100">
             <h2 class="text-xl font-bold mb-4 text-gray-100">"Connect with Friends"</h2>
+            
+            {move || {
+                if let Some(err) = api_error.get().as_str().is_empty().not().then(|| api_error.get()) {
+                    view! {
+                        <div class="bg-red-900 text-red-100 p-4 rounded mb-4">
+                            {err}
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }
+            }}
+            
+            {move || {
+                if let Some(connection) = current_connection.get() {
+                    view! {
+                        <div class="bg-green-900 text-green-100 p-4 rounded mb-4">
+                            <p>"Connected! Share this link with a friend to join:"</p>
+                            <div class="flex mt-2">
+                                <input
+                                    type="text"
+                                    readonly=true
+                                    class="w-full px-4 py-2 rounded-l bg-gray-800 border border-gray-700 text-gray-100"
+                                    value=format!("?link={}", connection.link_id)
+                                />
+                            </div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }
+            }}
+            
             <button
                 class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
                 on:click=move |_| {
@@ -77,9 +244,14 @@ pub fn FriendsConnect() -> impl IntoView {
                         if connection_name.get().trim().is_empty() {
                             set_show_name_error.set(true);
                         } else {
-                            set_show_name_error.set(false);
-                            set_show_connection.set(false);
-                            set_connection_name.set(String::new());
+                            // Check if we have a link ID in the URL
+                            if let Some(link_id) = connection_utils::get_link_id_from_url() {
+                                // Join existing connection
+                                join_connection(link_id);
+                            } else {
+                                // Create new connection
+                                create_connection();
+                            }
                         }
                     })
                 />
@@ -123,6 +295,7 @@ mod tests {
             
         assert_eq!(label.text_content().unwrap(), "Connect to:");
     }
+
 
     #[wasm_bindgen_test]
     async fn test_empty_connection_name_shows_error() {

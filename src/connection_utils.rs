@@ -1,9 +1,25 @@
-use web_sys::{window, UrlSearchParams};
+use web_sys::{window, UrlSearchParams, Request, RequestInit, RequestMode, Response, console};
+use wasm_bindgen::prelude::*;
+use serde_wasm_bindgen;
+use wasm_bindgen_futures::JsFuture;
+use serde::{Serialize, Deserialize};
+use js_sys::{Promise, JSON, Object};
 use crate::connect_component::{Connection, ConnectionStatus};
 use uuid::Uuid;
-use js_sys;
-#[cfg(test)]
-use wasm_bindgen_test::*;
+
+// API constants
+const API_BASE: &str = "http://64.181.233.1/friends";
+
+// Structs for API requests and responses
+#[derive(Serialize, Deserialize)]
+struct CreateConnectionRequest {
+    player_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct JoinConnectionRequest {
+    player_id: String,
+}
 
 pub fn extract_link_id_from_search(search: &str) -> Option<String> {
     if search.is_empty() {
@@ -24,158 +40,218 @@ pub fn get_link_id_from_url() -> Option<String> {
     extract_link_id_from_search(&search)
 }
 
-/// Create a new connection with a unique link ID
-pub fn create_connection(player_id: &str, name: &str) -> Option<Connection> {
-    let link_id = Uuid::new_v4().to_string();
+// Helper function for logging
+fn console_log(msg: &str) {
+    console::log_1(&JsValue::from_str(msg));
+}
+
+// Create a new connection with the API service
+pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
+    console_log(&format!("Creating connection for player: {}", player_id));
     
-    let connection = Connection {
-        id: Uuid::new_v4().to_string(),
-        link_id,
-        players: vec![player_id.to_string()],
-        created_at: js_sys::Date::now() as i64,
-        status: ConnectionStatus::Pending,
-        expires_at: js_sys::Date::now() as i64 + 86400000, // 24 hours
+    let mut opts = RequestInit::new();
+    opts.method("POST");
+    opts.mode(RequestMode::Cors);
+    
+    // Create the request body
+    let request_data = CreateConnectionRequest {
+        player_id: player_id.to_string(),
     };
     
-    // Save to localStorage
-    let window = window()?;
-    let storage = window.local_storage().ok()??;
+    let request_json = JSON::stringify(&serde_wasm_bindgen::to_value(&request_data)?)?;
+    opts.body(Some(&request_json));
     
-    // Store the connection
-    let conn_key = format!("connection-{}", connection.id);
-    storage.set_item(&conn_key, &serde_json::to_string(&connection).ok()?).ok()?;
+    // Set headers
+    let headers = web_sys::Headers::new()?;
+    headers.append("Content-Type", "application/json")?;
+    headers.append("Accept", "application/json")?;
+    opts.headers(&headers);
     
-    // Store connection name
-    storage.set_item(&format!("conn-name-{}", connection.id), name).ok()?;
+    // Create the request
+    let url = format!("{}/connections", API_BASE);
+    let request = Request::new_with_str_and_init(&url, &opts)?;
     
-    // Update connection index
-    let index_key = "connection-index";
-    let mut connection_ids = Vec::new();
+    // Fetch the request
+    let window = window().ok_or_else(|| JsValue::from_str("No window found"))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
     
-    if let Ok(Some(index_json)) = storage.get_item(index_key) {
-        if let Ok(mut ids) = serde_json::from_str::<Vec<String>>(&index_json) {
-            connection_ids = ids;
-        }
+    if !resp.ok() {
+        let status = resp.status();
+        let status_text = resp.status_text();
+        return Err(JsValue::from_str(&format!(
+            "API error: {} {}", status, status_text
+        )));
     }
     
-    if !connection_ids.contains(&connection.id) {
-        connection_ids.push(connection.id.clone());
-        if let Ok(index_json) = serde_json::to_string(&connection_ids) {
-            let _ = storage.set_item(index_key, &index_json);
-        }
-    }
+    // Parse the response as JSON
+    let json = JsFuture::from(resp.json()?).await?;
+    let connection_data: Connection = serde_wasm_bindgen::from_value(json)?;
     
-    Some(connection)
+    console_log(&format!("Connection created with ID: {}", connection_data.id));
+    
+    Ok(connection_data)
 }
 
-/// Join an existing connection using its link ID
-pub fn join_connection(link_id: &str, player_id: &str) -> Option<Connection> {
-    let window = window()?;
-    let storage = window.local_storage().ok()??;
+// Join an existing connection using the API service
+pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connection, JsValue> {
+    console_log(&format!("Joining connection with link ID: {} for player: {}", link_id, player_id));
     
-    // In a real app, this would be an API call
-    // For this demo, we'll just iterate through connection keys
-    // Since we can't use storage.keys() directly, we'll check specific keys
+    let mut opts = RequestInit::new();
+    opts.method("POST");
+    opts.mode(RequestMode::Cors);
     
-    // Try to load from saved connections first
-    if let Some(connections) = load_all_connections() {
-        for mut connection in connections {
-            if connection.link_id == link_id {
-                // Add player to connection if not already present
-                if !connection.players.contains(&player_id.to_string()) {
-                    connection.players.push(player_id.to_string());
-                    connection.status = ConnectionStatus::Active;
-                    
-                    // Update in localStorage
-                    let conn_key = format!("connection-{}", connection.id);
-                    storage.set_item(&conn_key, &serde_json::to_string(&connection).ok()?).ok()?;
-                }
-                
-                return Some(connection);
-            }
-        }
+    // Create the request body
+    let request_data = JoinConnectionRequest {
+        player_id: player_id.to_string(),
+    };
+    
+    let request_json = JSON::stringify(&serde_wasm_bindgen::to_value(&request_data)?)?;
+    opts.body(Some(&request_json));
+    
+    // Set headers
+    let headers = web_sys::Headers::new()?;
+    headers.append("Content-Type", "application/json")?;
+    opts.headers(&headers);
+    
+    // Create the request
+    let url = format!("{}/connections/link/{}/join", API_BASE, link_id);
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    
+    // Fetch the request
+    let window = window().ok_or_else(|| JsValue::from_str("No window found"))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+    
+    if !resp.ok() {
+        let status = resp.status();
+        let status_text = resp.status_text();
+        return Err(JsValue::from_str(&format!(
+            "API error: {} {}", status, status_text
+        )));
     }
     
-    None
+    // Parse the response as JSON
+    let json = JsFuture::from(resp.json()?).await?;
+    let connection_data: Connection = serde_wasm_bindgen::from_value(json)?;
+    
+    console_log(&format!("Joined connection with ID: {}", connection_data.id));
+    
+    Ok(connection_data)
 }
 
-/// Helper function to load all connections from localStorage
-fn load_all_connections() -> Option<Vec<Connection>> {
-    let window = window()?;
-    let storage = window.local_storage().ok()??;
-    
-    // Since we can't enumerate keys, we'll use a known prefix pattern
-    let mut connections = Vec::new();
-    
-    // Check for saved connections collection first
-    if let Ok(Some(saved_json)) = storage.get_item("saved-connections") {
-        if let Ok(saved_conns) = serde_json::from_str::<Vec<Connection>>(&saved_json) {
-            connections.extend(saved_conns);
-        }
-    }
-    
-    // Try to find individual connections (we'd need to know the IDs in a real app)
-    // For this demo, let's assume we know connection IDs are in a specific format
-    // In a real app, you might store an index of IDs
-    if let Ok(Some(index_json)) = storage.get_item("connection-index") {
-        if let Ok(connection_ids) = serde_json::from_str::<Vec<String>>(&index_json) {
-            for id in connection_ids {
-                let conn_key = format!("connection-{}", id);
-                if let Ok(Some(conn_json)) = storage.get_item(&conn_key) {
-                    if let Ok(conn) = serde_json::from_str::<Connection>(&conn_json) {
-                        connections.push(conn);
+// Helper function to save connection name in localStorage
+fn save_connection_name(connection_id: &str, name: &str) {
+    if let Some(window) = window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let key = format!("conn-name-{}", connection_id);
+            let _ = storage.set_item(&key, name);
+            
+            // Also save in the connection names map
+            if let Ok(Some(names_json)) = storage.get_item("connection-names") {
+                if let Ok(mut names_map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&names_json) {
+                    names_map.insert(connection_id.to_string(), serde_json::Value::String(name.to_string()));
+                    if let Ok(updated_json) = serde_json::to_string(&names_map) {
+                        let _ = storage.set_item("connection-names", &updated_json);
                     }
                 }
+            } else {
+                // Create new map
+                let mut names_map = serde_json::Map::new();
+                names_map.insert(connection_id.to_string(), serde_json::Value::String(name.to_string()));
+                if let Ok(json) = serde_json::to_string(&names_map) {
+                    let _ = storage.set_item("connection-names", &json);
+                }
             }
         }
     }
-    
-    Some(connections)
 }
 
-/// Save a connection to the list of saved connections
-pub fn save_connection(connection: &Connection) -> Option<()> {
+// Get a connection by its link ID
+pub async fn get_connection_by_link_id(link_id: &str) -> Result<Connection, JsValue> {
+    console_log(&format!("Getting connection with link ID: {}", link_id));
+    
+    let mut opts = RequestInit::new();
+    opts.method("GET");
+    opts.mode(RequestMode::Cors);
+    
+    // Set headers
+    let headers = web_sys::Headers::new()?;
+    headers.append("Accept", "application/json")?;
+    opts.headers(&headers);
+    
+    // Create the request
+    let url = format!("{}/connections/link/{}", API_BASE, link_id);
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    
+    // Fetch the request
+    let window = window().ok_or_else(|| JsValue::from_str("No window found"))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+    
+    if !resp.ok() {
+        let status = resp.status();
+        if status == 404 {
+            return Err(JsValue::from_str("Connection not found"));
+        }
+        let status_text = resp.status_text();
+        return Err(JsValue::from_str(&format!(
+            "API error: {} {}", status, status_text
+        )));
+    }
+    
+    // Parse the response as JSON
+    let json = JsFuture::from(resp.json()?).await?;
+    let connection_data: Connection = serde_wasm_bindgen::from_value(json)?;
+    
+    console_log(&format!("Retrieved connection with ID: {}", connection_data.id));
+    
+    Ok(connection_data)
+}
+
+// Save a connection in local storage for later reference
+pub fn save_connection_to_local_storage(connection: &Connection, friendly_name: &str) -> Option<()> {
     let window = window()?;
     let storage = window.local_storage().ok()??;
     
-    // Get existing saved connections
+    // Create a structure to save
+    #[derive(Serialize, Deserialize)]
+    struct SavedConnection {
+        id: String,
+        link_id: String,
+        friendly_name: String,
+        created_at: i64,
+    }
+    
+    let saved = SavedConnection {
+        id: connection.id.clone(),
+        link_id: connection.link_id.clone(),
+        friendly_name: friendly_name.to_string(),
+        created_at: connection.created_at,
+    };
+    
+    // Save in saved connections collection
     let saved_key = "saved-connections";
     let existing = storage.get_item(saved_key).ok()?;
     
-    let mut connections: Vec<Connection> = existing
-        .map(|json| serde_json::from_str(&json).unwrap_or_else(|_| Vec::new()))
+    let mut connections: Vec<SavedConnection> = existing
+        .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_else(|| Vec::new());
     
-    // Add new connection if not already present
+    // Add if not already present
     if !connections.iter().any(|c| c.id == connection.id) {
-        connections.push(connection.clone());
+        connections.push(saved);
         
         // Save back to localStorage
-        storage.set_item(saved_key, &serde_json::to_string(&connections).ok()?).ok()?;
-        
-        // Also make sure it's in the connection index
-        let index_key = "connection-index";
-        let mut connection_ids = Vec::new();
-        
-        if let Ok(Some(index_json)) = storage.get_item(index_key) {
-            if let Ok(mut ids) = serde_json::from_str::<Vec<String>>(&index_json) {
-                connection_ids = ids;
-            }
-        }
-        
-        if !connection_ids.contains(&connection.id) {
-            connection_ids.push(connection.id.clone());
-            if let Ok(index_json) = serde_json::to_string(&connection_ids) {
-                let _ = storage.set_item(index_key, &index_json);
-            }
-        }
+        let json = serde_json::to_string(&connections).ok()?;
+        storage.set_item(saved_key, &json).ok()?;
     }
     
     Some(())
 }
 
-/// Load all saved connections
-pub fn load_saved_connections() -> Vec<Connection> {
+// Load saved connections from local storage
+pub fn load_saved_connections() -> Vec<serde_json::Value> {
     let window = match window() {
         Some(w) => w,
         None => return Vec::new(),
@@ -196,4 +272,121 @@ pub fn load_saved_connections() -> Vec<Connection> {
         Ok(connections) => connections,
         Err(_) => Vec::new(),
     }
+}
+
+// Poll for notifications
+pub async fn poll_notifications(player_id: &str) -> Result<Vec<String>, JsValue> {
+    let mut opts = RequestInit::new();
+    opts.method("GET");
+    opts.mode(RequestMode::Cors);
+    
+    // Set headers
+    let headers = web_sys::Headers::new()?;
+    headers.append("Accept", "application/json")?;
+    opts.headers(&headers);
+    
+    // Create the request
+    let url = format!("{}/players/{}/notifications", API_BASE, player_id);
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    
+    // Fetch the request
+    let window = window().ok_or_else(|| JsValue::from_str("No window found"))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+    
+    if !resp.ok() {
+        let status = resp.status();
+        let status_text = resp.status_text();
+        return Err(JsValue::from_str(&format!(
+            "API error: {} {}", status, status_text
+        )));
+    }
+    
+    // Parse the response as JSON
+    let json = JsFuture::from(resp.json()?).await?;
+    let notifications: Vec<String> = serde_wasm_bindgen::from_value(json)?;
+    
+    if !notifications.is_empty() {
+        // Acknowledge notifications
+        acknowledge_notifications(player_id).await?;
+    }
+    
+    Ok(notifications)
+}
+
+// Acknowledge notifications
+async fn acknowledge_notifications(player_id: &str) -> Result<(), JsValue> {
+    let mut opts = RequestInit::new();
+    opts.method("POST");
+    opts.mode(RequestMode::Cors);
+    
+    // Set headers
+    let headers = web_sys::Headers::new()?;
+    headers.append("Content-Type", "application/json")?;
+    opts.headers(&headers);
+    
+    // Create the request
+    let url = format!("{}/players/{}/notifications/ack", API_BASE, player_id);
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    
+    // Fetch the request
+    let window = window().ok_or_else(|| JsValue::from_str("No window found"))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+    
+    if !resp.ok() {
+        let status = resp.status();
+        let status_text = resp.status_text();
+        return Err(JsValue::from_str(&format!(
+            "API error: {} {}", status, status_text
+        )));
+    }
+    
+    Ok(())
+}
+
+// Send a message to a connection
+pub async fn send_message(connection_id: &str, player_id: &str, content: &str) -> Result<(), JsValue> {
+    let mut opts = RequestInit::new();
+    opts.method("POST");
+    opts.mode(RequestMode::Cors);
+    
+    // Create the request body
+    #[derive(Serialize)]
+    struct MessageRequest {
+        player_id: String,
+        content: String,
+    }
+    
+    let request_data = MessageRequest {
+        player_id: player_id.to_string(),
+        content: content.to_string(),
+    };
+    
+    let request_json = JSON::stringify(&serde_wasm_bindgen::to_value(&request_data)?)?;
+    opts.body(Some(&request_json));
+    
+    // Set headers
+    let headers = web_sys::Headers::new()?;
+    headers.append("Content-Type", "application/json")?;
+    opts.headers(&headers);
+    
+    // Create the request
+    let url = format!("{}/connections/{}/messages", API_BASE, connection_id);
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    
+    // Fetch the request
+    let window = window().ok_or_else(|| JsValue::from_str("No window found"))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+    
+    if !resp.ok() {
+        let status = resp.status();
+        let status_text = resp.status_text();
+        return Err(JsValue::from_str(&format!(
+            "API error: {} {}", status, status_text
+        )));
+    }
+    
+    Ok(())
 }
