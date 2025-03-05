@@ -272,6 +272,7 @@ pub fn FriendsConnect() -> impl IntoView {
                     } else {
                         view! {
                             <div class="border border-gray-700 rounded overflow-hidden">
+                                // Update the ConnectionItem rendering in FriendsConnect
                                 <For
                                     each=move || connections.get()
                                     key=|conn| conn.id.clone()
@@ -281,7 +282,16 @@ pub fn FriendsConnect() -> impl IntoView {
                                         let conn_id = connection.id.clone();
                                         let name = get_connection_name(&conn_id).unwrap_or_else(|| "Unnamed Connection".to_string());
                                         view! {
-                                            <ConnectionItem connection=connection.clone() name=name />
+                                            <ConnectionItem 
+                                                connection=connection.clone() 
+                                                name=name 
+                                                on_delete=Callback::new(move |deleted_id: String| {
+                                                    // Remove the deleted connection from the connections list
+                                                    set_connections.update(|conns| {
+                                                        conns.retain(|c| c.id != deleted_id);
+                                                    });
+                                                })
+                                            />
                                         }
                                     }}
                                 </For>

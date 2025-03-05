@@ -1,5 +1,6 @@
 use leptos::*;
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::connect_component::{Connection, ConnectionStatus};
 
@@ -7,6 +8,7 @@ use crate::connect_component::{Connection, ConnectionStatus};
 pub fn ConnectionItem(
     #[prop(into)] connection: Connection,
     #[prop(into)] name: String,
+    #[prop(optional)] on_delete: Option<Callback<String>>,
 ) -> impl IntoView {
     // Create local clone of connection values to avoid ownership issues
     let status = create_rw_signal(connection.status);
@@ -29,6 +31,54 @@ pub fn ConnectionItem(
         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(
             &format!("Deleting connection: {}", connection_id.get())
         ));
+        
+        // Get the connection ID to delete
+        let conn_id = connection_id.get();
+        
+        // Remove from localStorage
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                // Remove the connection name
+                let name_key = format!("conn-name-{}", conn_id);
+                let _ = storage.remove_item(&name_key);
+                
+                // Remove from saved connections
+                if let Ok(Some(saved_json)) = storage.get_item("saved-connections") {
+                    if let Ok(mut saved_connections) = serde_json::from_str::<Vec<serde_json::Value>>(&saved_json) {
+                        // Filter out the connection to delete
+                        saved_connections.retain(|conn| {
+                            if let Some(id) = conn.get("id").and_then(|v| v.as_str()) {
+                                id != conn_id
+                            } else {
+                                true // Keep entries without an id
+                            }
+                        });
+                        
+                        // Save the updated list
+                        if let Ok(updated_json) = serde_json::to_string(&saved_connections) {
+                            let _ = storage.set_item("saved-connections", &updated_json);
+                        }
+                    }
+                }
+                
+                // Also remove from connection names map if it exists
+                if let Ok(Some(names_json)) = storage.get_item("connection-names") {
+                    if let Ok(mut names_map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&names_json) {
+                        names_map.remove(&conn_id);
+                        if let Ok(updated_json) = serde_json::to_string(&names_map) {
+                            let _ = storage.set_item("connection-names", &updated_json);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Call the delete callback if provided
+        if let Some(callback) = on_delete {
+            callback.run(conn_id);
+        }
+        
+        // Close the modal
         show_expired_modal.set(false);
     };
     
