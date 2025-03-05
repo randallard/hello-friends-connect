@@ -92,9 +92,17 @@ pub fn FriendsConnect() -> impl IntoView {
                         .and_then(|v| v.as_i64())
                         .unwrap_or_else(|| created_at + 86400000); // 24 hours from creation
                     
+                    // Get expires_at from saved connection or calculate it if not present
+                    let expires_at = saved_conn.get("expires_at")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or_else(|| created_at + 86400); // 24 hours from creation in seconds
+
+                    // Convert expires_at to milliseconds for comparison with js_sys::Date::now()
+                    let expires_at_ms = expires_at * 1000;
+
                     // Set status based on expiration time
-                    let status = if expires_at > js_sys::Date::now() as i64 {
-                        ConnectionStatus::Active
+                    let status = if expires_at_ms > js_sys::Date::now() as i64 {
+                        ConnectionStatus::Pending
                     } else {
                         ConnectionStatus::Expired
                     };
