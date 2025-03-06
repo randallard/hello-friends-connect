@@ -32,11 +32,11 @@ pub fn ConnectionModal(
     let initialize_link_id = move || {
         if let Some(custom_link_id) = connection_link_id.clone() {
             // Use the provided connection link ID when in view mode
-            console_log(&format!("Using provided link ID: {}", custom_link_id));
+            console_log(&format!("Modal using provided link ID: {}", custom_link_id));
             set_link_id.set(custom_link_id);
         } else if let Some(url_link_id) = get_link_id_from_url() {
             // Found link ID in URL - we're joining an existing connection
-            console_log(&format!("Found link ID in URL: {}", url_link_id));
+            console_log(&format!("Modal using URL link ID: {}", url_link_id));
             set_link_id.set(url_link_id.clone());
             
             // Suggest a default name
@@ -45,6 +45,7 @@ pub fn ConnectionModal(
             on_name_change.run(default_name);
         } else if !is_view_mode {
             // No link ID in URL - we're creating a new connection
+            console_log("Modal requesting new link ID from server");
             // Request a new link ID from the server right away
             request_new_link_id(set_link_id, set_loading_link, set_link_error);
         }
@@ -198,6 +199,9 @@ fn request_new_link_id(
     set_loading: WriteSignal<bool>,
     set_error: WriteSignal<String>
 ) {
+    console::log_1(&wasm_bindgen::JsValue::from_str(
+        "Generating new link ID via API call"
+    ));
     // Check if we have a player ID
     if let Some(player_id) = get_stored_player_id() {
         // Set loading state
@@ -215,6 +219,10 @@ fn request_new_link_id(
                 Ok(connection) => {
                     // Extract the link ID
                     let new_link_id = connection.link_id.clone();
+
+                    console::log_1(&wasm_bindgen::JsValue::from_str(
+                        &format!("Generated new link ID: {}", new_link_id)
+                    ));
                     
                     // Update the UI
                     set_link_id.set(new_link_id);

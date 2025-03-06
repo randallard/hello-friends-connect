@@ -153,7 +153,8 @@ pub fn FriendsConnect() -> impl IntoView {
         spawn_local(async move {
             match connection_utils::create_connection(&player_id).await {
                 Ok(connection) => {
-                    console_log(&format!("Connection created: {}", connection.id));
+                    console_log(&format!("Connection created with ID: {} and link_id: {}", 
+                        connection.id, connection.link_id));
                     
                     // Save friendly name for this connection
                     if let Some(window) = web_sys::window() {

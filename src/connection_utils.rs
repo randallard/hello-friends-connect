@@ -212,6 +212,11 @@ pub async fn get_connection_by_link_id(link_id: &str) -> Result<Connection, JsVa
 pub fn save_connection_to_local_storage(connection: &Connection, friendly_name: &str) -> Option<()> {
     let window = window()?;
     let storage = window.local_storage().ok()??;
+
+    console::log_1(&wasm_bindgen::JsValue::from_str(
+        &format!("Saving connection to localStorage - ID: {}, link_id: {}", 
+            connection.id, connection.link_id)
+    ));
     
     // Create a structure to save
     #[derive(Serialize, Deserialize)]
