@@ -1,8 +1,10 @@
 use leptos::*;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
+use web_sys::{Event, MouseEvent};
 
 use crate::connect_component::{Connection, ConnectionStatus};
+use crate::connection_modal::ConnectionModal;
 
 #[component]
 pub fn ConnectionItem(
@@ -14,12 +16,13 @@ pub fn ConnectionItem(
     let status = create_rw_signal(connection.status);
     let connection_id = create_rw_signal(connection.id.clone());
     let connection_name = create_rw_signal(name);
+    let show_view_modal = create_rw_signal(false);
     
     // Signal to track if the confirmation modal is visible
     let show_expired_modal = create_rw_signal(false);
     
     // Function to handle refresh action
-    let handle_refresh = move |_| {
+    let handle_refresh = move |_: MouseEvent| {
         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(
             &format!("Refreshing connection: {}", connection_id.get())
         ));
@@ -27,7 +30,7 @@ pub fn ConnectionItem(
     };
     
     // Function to handle delete action
-    let handle_delete = move |_| {
+    let handle_delete = move |_: MouseEvent| {
         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(
             &format!("Deleting connection: {}", connection_id.get())
         ));
@@ -84,8 +87,13 @@ pub fn ConnectionItem(
     
     // Function to handle status button click
     let handle_status_click = move |_| {
-        if status.get() == ConnectionStatus::Expired {
-            show_expired_modal.set(true);
+        match status.get() {
+            ConnectionStatus::Expired => {
+                show_expired_modal.set(true);
+            },
+            ConnectionStatus::Pending | ConnectionStatus::Active => {
+                show_view_modal.set(true);
+            }
         }
     };
     
@@ -145,6 +153,39 @@ pub fn ConnectionItem(
                                 </div>
                             </div>
                         </div>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }
+            }}
+
+            // View modal for pending connections
+            {move || {
+                if show_view_modal.get() {
+                    let name_signal = create_signal(connection_name.get());
+                    let conn_id = connection_id.get();
+                    
+                    view! {
+                        <ConnectionModal
+                            connection_name=name_signal.0
+                            show_name_error=create_signal(false).0
+                            is_view_mode=true
+                            connection_link_id=connection.link_id.clone()
+                            on_name_change=Callback::new(move |_| {
+                                // No-op for view mode
+                            })
+                            on_cancel=Callback::new(move |_| {
+                                show_view_modal.set(false);
+                            })
+                            on_delete=Callback::new(move |_| {
+                                handle_delete(web_sys::MouseEvent::new("click").unwrap());
+                                show_view_modal.set(false);
+                            })
+                            on_submit=Callback::new(move |_| {
+                                handle_refresh(web_sys::MouseEvent::new("click").unwrap());
+                                show_view_modal.set(false);
+                            })
+                        />
                     }.into_any()
                 } else {
                     view! { <></> }.into_any()

@@ -14,6 +14,9 @@ pub fn ConnectionModal(
     #[prop(into)] on_name_change: Callback<String>,
     #[prop(into)] on_cancel: Callback<()>,
     #[prop(into)] on_submit: Callback<()>,
+    #[prop(optional)] is_view_mode: bool,
+    #[prop(optional)] on_delete: Option<Callback<()>>,
+    #[prop(optional)] connection_link_id: Option<String>,
 ) -> impl IntoView {
     // Create signals for the link ID
     let (link_id, set_link_id) = signal(String::new());
@@ -27,7 +30,11 @@ pub fn ConnectionModal(
     
     // Check URL for link parameter or request a new link ID
     let initialize_link_id = move || {
-        if let Some(url_link_id) = get_link_id_from_url() {
+        if let Some(custom_link_id) = connection_link_id.clone() {
+            // Use the provided connection link ID when in view mode
+            console_log(&format!("Using provided link ID: {}", custom_link_id));
+            set_link_id.set(custom_link_id);
+        } else if let Some(url_link_id) = get_link_id_from_url() {
             // Found link ID in URL - we're joining an existing connection
             console_log(&format!("Found link ID in URL: {}", url_link_id));
             set_link_id.set(url_link_id.clone());
@@ -36,7 +43,7 @@ pub fn ConnectionModal(
             let prefix_len = std::cmp::min(6, url_link_id.len());
             let default_name = format!("Connection {}", &url_link_id[..prefix_len]);
             on_name_change.run(default_name);
-        } else {
+        } else if !is_view_mode {
             // No link ID in URL - we're creating a new connection
             // Request a new link ID from the server right away
             request_new_link_id(set_link_id, set_loading_link, set_link_error);
@@ -73,7 +80,9 @@ pub fn ConnectionModal(
             <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-gray-100 border border-gray-700">
                 <h3 class="text-xl font-bold mb-4 text-gray-100">
                     {move || {
-                        if get_link_id_from_url().is_some() {
+                        if is_view_mode {
+                            "View connection"
+                        } else if get_link_id_from_url().is_some() {
                             "Join a connection!"
                         } else {
                             "Make a connection!"
@@ -89,6 +98,7 @@ pub fn ConnectionModal(
                             type="text"
                             class="w-full px-4 py-2 rounded bg-gray-900 border border-gray-700 text-gray-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                             prop:value=connection_name
+                            prop:disabled=is_view_mode
                             on:input=move |ev| {
                                 let value = event_target_value(&ev);
                                 on_name_change.run(value);
@@ -142,18 +152,39 @@ pub fn ConnectionModal(
                         >
                             "Cancel"
                         </button>
-                        <button
-                            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
-                            on:click=move |_| on_submit.run(())
-                        >
-                            {move || {
-                                if get_link_id_from_url().is_some() {
-                                    "Join"
-                                } else {
-                                    "Create"
-                                }
-                            }}
-                        </button>
+                        {move || {
+                            if is_view_mode {
+                                view! {
+                                    <>
+                                        <button
+                                            class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-gray-100"
+                                            on:click=move |_| {
+                                                if let Some(ref callback) = on_delete {
+                                                    callback.run(());
+                                                }
+                                            }
+                                        >
+                                            "Delete"
+                                        </button>
+                                        <button
+                                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-gray-100"
+                                            on:click=move |_| on_submit.run(())
+                                        >
+                                            "Refresh"
+                                        </button>
+                                    </>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <button
+                                        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
+                                        on:click=move |_| on_submit.run(())
+                                    >
+                                        {if get_link_id_from_url().is_some() { "Join" } else { "Create" }}
+                                    </button>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                 </div>
             </div>
