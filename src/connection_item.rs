@@ -17,9 +17,23 @@ pub fn ConnectionItem(
     let connection_id = create_rw_signal(connection.id.clone());
     let connection_name = create_rw_signal(name);
     let show_view_modal = create_rw_signal(false);
-    
-    // Signal to track if the confirmation modal is visible
     let show_expired_modal = create_rw_signal(false);
+    
+    // Create a signal to track if this component is still valid
+    // This helps prevent errors when trying to access deleted connections
+    let is_valid = create_rw_signal(true);
+    
+    // Function to handle status button click
+    let handle_status_click = move |_| {
+        match status.get() {
+            ConnectionStatus::Expired => {
+                show_expired_modal.set(true);
+            },
+            ConnectionStatus::Pending | ConnectionStatus::Active => {
+                show_view_modal.set(true);
+            }
+        }
+    };
     
     // Function to handle refresh action
     let handle_refresh = move |_: MouseEvent| {
@@ -31,12 +45,14 @@ pub fn ConnectionItem(
     
     // Function to handle delete action
     let handle_delete = move |_: MouseEvent| {
-        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(
-            &format!("Deleting connection: {}", connection_id.get())
-        ));
+        if !is_valid.get() {
+            return; // Skip if already deleted
+        }
         
-        // Get the connection ID to delete
         let conn_id = connection_id.get();
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(
+            &format!("Deleting connection: {}", conn_id)
+        ));
         
         // Remove from localStorage
         if let Some(window) = web_sys::window() {
@@ -76,51 +92,54 @@ pub fn ConnectionItem(
             }
         }
         
+        // Mark this component as invalid before calling delete callback
+        is_valid.set(false);
+        
+        // Close any open modals
+        show_expired_modal.set(false);
+        show_view_modal.set(false);
+        
         // Call the delete callback if provided
         if let Some(callback) = on_delete {
             callback.run(conn_id);
-        }
-        
-        // Close the modal
-        show_expired_modal.set(false);
-    };
-    
-    // Function to handle status button click
-    let handle_status_click = move |_| {
-        match status.get() {
-            ConnectionStatus::Expired => {
-                show_expired_modal.set(true);
-            },
-            ConnectionStatus::Pending | ConnectionStatus::Active => {
-                show_view_modal.set(true);
-            }
         }
     };
     
     view! {
         <div class="flex justify-between items-center p-3 border-b border-gray-700 last:border-b-0">
-            <div class="font-medium">{connection_name}</div>
-            <div>
-                - / -
-                <button 
-                    class={move || match status.get() {
-                        ConnectionStatus::Pending => "px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-gray-100",
-                        ConnectionStatus::Active => "px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm text-gray-100", 
-                        ConnectionStatus::Expired => "px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm text-gray-100",
-                    }}
-                    on:click=handle_status_click
-                >
-                    {move || match status.get() {
-                        ConnectionStatus::Pending => "Pending",
-                        ConnectionStatus::Active => "Active",
-                        ConnectionStatus::Expired => "Expired",
-                    }}
-                </button>
-            </div>
+            {move || {
+                // Skip rendering if this component is no longer valid
+                if !is_valid.get() {
+                    return view! { <></> }.into_any();
+                }
+                
+                view! {
+                    <>
+                        <div class="font-medium">{connection_name}</div>
+                        <div>
+                            - / -
+                            <button 
+                                class={move || match status.get() {
+                                    ConnectionStatus::Pending => "px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-gray-100",
+                                    ConnectionStatus::Active => "px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm text-gray-100", 
+                                    ConnectionStatus::Expired => "px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm text-gray-100",
+                                }}
+                                on:click=handle_status_click
+                            >
+                                {move || match status.get() {
+                                    ConnectionStatus::Pending => "Pending",
+                                    ConnectionStatus::Active => "Active",
+                                    ConnectionStatus::Expired => "Expired",
+                                }}
+                            </button>
+                        </div>
+                    </>
+                }.into_any()
+            }}
             
             // Modal for expired connections
             {move || {
-                if show_expired_modal.get() {
+                if show_expired_modal.get() && is_valid.get() {
                     view! {
                         <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
                             <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-gray-100 border border-gray-700">
@@ -161,9 +180,8 @@ pub fn ConnectionItem(
 
             // View modal for pending connections
             {move || {
-                if show_view_modal.get() {
+                if show_view_modal.get() && is_valid.get() {
                     let name_signal = create_signal(connection_name.get());
-                    let conn_id = connection_id.get();
                     
                     view! {
                         <ConnectionModal
@@ -179,7 +197,6 @@ pub fn ConnectionItem(
                             })
                             on_delete=Callback::new(move |_| {
                                 handle_delete(web_sys::MouseEvent::new("click").unwrap());
-                                show_view_modal.set(false);
                             })
                             on_submit=Callback::new(move |_| {
                                 handle_refresh(web_sys::MouseEvent::new("click").unwrap());
