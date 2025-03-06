@@ -322,7 +322,7 @@ pub fn FriendsConnect() -> impl IntoView {
                         set_show_name_error.set(false);
                         set_show_connection.set(false);
                     })
-                    on_submit=Callback::new(move |_| {
+                    on_submit=Callback::new(move |existing_connection: Option<Connection>| {
                         if connection_name.get().trim().is_empty() {
                             set_show_name_error.set(true);
                         } else {
@@ -330,8 +330,35 @@ pub fn FriendsConnect() -> impl IntoView {
                             if let Some(link_id) = connection_utils::get_link_id_from_url() {
                                 // Join existing connection
                                 join_connection(link_id);
+                            } else if let Some(connection) = existing_connection {
+                                // Use the already created connection
+                                let name_clone = connection_name.get();
+                                console_log(&format!("Using pre-created connection: {}", connection.id));
+                                
+                                // Save friendly name for this connection
+                                if let Some(window) = web_sys::window() {
+                                    if let Ok(Some(storage)) = window.local_storage() {
+                                        let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone);
+                                    }
+                                }
+                                
+                                // Save the connection for later
+                                let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
+                                
+                                // Update current connection
+                                set_current_connection.set(Some(connection.clone()));
+                                
+                                // Add to connections list
+                                set_connections.update(|conns| {
+                                    conns.push(connection);
+                                });
+                                
+                                // Close the modal
+                                set_show_connection.set(false);
+                                set_connection_name.set(String::new());
                             } else {
-                                // Create new connection
+                                // Fallback to creating a new connection if for some reason
+                                // we don't have a pre-created one
                                 create_connection();
                             }
                         }

@@ -13,7 +13,7 @@ pub fn ConnectionModal(
     #[prop(into)] show_name_error: Signal<bool>,
     #[prop(into)] on_name_change: Callback<String>,
     #[prop(into)] on_cancel: Callback<()>,
-    #[prop(into)] on_submit: Callback<()>,
+    #[prop(into)] on_submit: Callback<Option<Connection>>,
     #[prop(optional)] is_view_mode: bool,
     #[prop(optional)] on_delete: Option<Callback<()>>,
     #[prop(optional)] connection_link_id: Option<String>,
@@ -22,10 +22,53 @@ pub fn ConnectionModal(
     let (link_id, set_link_id) = signal(String::new());
     let (loading_link, set_loading_link) = signal(false);
     let (link_error, set_link_error) = signal(String::new());
+    let (created_connection, set_created_connection) = signal(None::<Connection>);
     
     // Function for console logging
     let console_log = move |msg: &str| {
         console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+    };
+      
+    // Update the request_new_link_id function to store the connection
+    let request_new_link_id = move || {
+        console_log("Generating new link ID via API call");
+        // Check if we have a player ID
+        if let Some(player_id) = get_stored_player_id() {
+            // Set loading state
+            set_loading_link.set(true);
+            set_link_error.set(String::new());
+            
+            // Clone player ID for the async closure
+            let player_id_clone = player_id.clone();
+            
+            // Spawn async task to request link ID
+            spawn_local(async move {
+                match crate::connection_utils::create_connection(&player_id_clone).await {
+                    Ok(connection) => {
+                        // Extract the link ID
+                        let new_link_id = connection.link_id.clone();
+                        console_log(&format!("Generated new link ID: {}", new_link_id));
+                        
+                        // Update the UI
+                        set_link_id.set(new_link_id);
+                        set_loading_link.set(false);
+                        
+                        // Store the created connection for later use
+                        set_created_connection.set(Some(connection));
+                    },
+                    Err(e) => {
+                        // Handle error, but don't block the form submission
+                        let error_msg = format!("Failed to generate link: {:?}", e);
+                        console_log(&error_msg);
+                        set_link_error.set(error_msg);
+                        set_loading_link.set(false);
+                    }
+                }
+            });
+        } else {
+            // No player ID available
+            set_link_error.set("No player ID found".to_string());
+        }
     };
     
     // Check URL for link parameter or request a new link ID
@@ -47,7 +90,7 @@ pub fn ConnectionModal(
             // No link ID in URL - we're creating a new connection
             console_log("Modal requesting new link ID from server");
             // Request a new link ID from the server right away
-            request_new_link_id(set_link_id, set_loading_link, set_link_error);
+            request_new_link_id();
         }
     };
     
@@ -167,19 +210,13 @@ pub fn ConnectionModal(
                                         >
                                             "Delete"
                                         </button>
-                                        <button
-                                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-gray-100"
-                                            on:click=move |_| on_submit.run(())
-                                        >
-                                            "Refresh"
-                                        </button>
                                     </>
                                 }.into_any()
                             } else {
                                 view! {
                                     <button
                                         class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
-                                        on:click=move |_| on_submit.run(())
+                                        on:click=move |_| on_submit.run(created_connection.get())
                                     >
                                         {if get_link_id_from_url().is_some() { "Join" } else { "Create" }}
                                     </button>
@@ -190,55 +227,5 @@ pub fn ConnectionModal(
                 </div>
             </div>
         </div>
-    }
-}
-
-// Function to request a new link ID from the server immediately when the modal opens
-fn request_new_link_id(
-    set_link_id: WriteSignal<String>,
-    set_loading: WriteSignal<bool>,
-    set_error: WriteSignal<String>
-) {
-    console::log_1(&wasm_bindgen::JsValue::from_str(
-        "Generating new link ID via API call"
-    ));
-    // Check if we have a player ID
-    if let Some(player_id) = get_stored_player_id() {
-        // Set loading state
-        set_loading.set(true);
-        set_error.set(String::new());
-        
-        // Clone player ID for the async closure
-        let player_id_clone = player_id.clone();
-        
-        // Spawn async task to request link ID
-        spawn_local(async move {
-            // Use the existing create_connection method but with a placeholder name
-            // The actual connection will be created properly when form is submitted
-            match crate::connection_utils::create_connection(&player_id_clone).await {
-                Ok(connection) => {
-                    // Extract the link ID
-                    let new_link_id = connection.link_id.clone();
-
-                    console::log_1(&wasm_bindgen::JsValue::from_str(
-                        &format!("Generated new link ID: {}", new_link_id)
-                    ));
-                    
-                    // Update the UI
-                    set_link_id.set(new_link_id);
-                    set_loading.set(false);
-                },
-                Err(e) => {
-                    // Handle error, but don't block the form submission
-                    let error_msg = format!("Failed to generate link: {:?}", e);
-                    console::log_1(&wasm_bindgen::JsValue::from_str(&error_msg));
-                    set_error.set(error_msg);
-                    set_loading.set(false);
-                }
-            }
-        });
-    } else {
-        // No player ID available
-        set_error.set("No player ID found".to_string());
     }
 }
