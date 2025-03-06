@@ -123,9 +123,25 @@ pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connectio
     let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
     let resp: Response = resp_value.dyn_into()?;
     
+    // Enhanced error handling in join_connection function in connection_utils.rs
     if !resp.ok() {
         let status = resp.status();
         let status_text = resp.status_text();
+        
+        // Try to parse error response as JSON
+        let error_text = JsFuture::from(resp.text()?).await?;
+        let error_str = error_text.as_string().unwrap_or_default();
+        
+        // Try to extract the error message from JSON
+        if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(&error_str) {
+            if let Some(error_msg) = error_json.get("error").and_then(|v| v.as_str()) {
+                return Err(JsValue::from_str(&format!(
+                    "{}", error_msg  // Just return the error message without additional text
+                )));
+            }
+        }
+        
+        // Fallback to generic error if JSON parsing fails
         return Err(JsValue::from_str(&format!(
             "API error: {} {}", status, status_text
         )));

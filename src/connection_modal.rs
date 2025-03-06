@@ -84,8 +84,7 @@ pub fn ConnectionModal(
             
             // Suggest a default name
             let prefix_len = std::cmp::min(6, url_link_id.len());
-            let default_name = format!("Connection {}", &url_link_id[..prefix_len]);
-            on_name_change.run(default_name);
+            on_name_change.run(String::new());
         } else if !is_view_mode {
             // No link ID in URL - we're creating a new connection
             console_log("Modal requesting new link ID from server");
@@ -95,7 +94,26 @@ pub fn ConnectionModal(
     };
     
     // Initialize on component creation
-    initialize_link_id();
+    initialize_link_id(); 
+
+    let (api_error_ref, _) = signal(String::new());
+    Effect::new(move |_| {
+        // Check if there's a parent component API error about connection being full
+        if let Some(window) = web_sys::window() {
+            if let Some(error_element) = window.document()
+                .and_then(|doc| doc.query_selector(".bg-red-900").ok())
+                .flatten() 
+            {
+                let error_text = error_element.text_content().unwrap_or_default();
+                if (error_text.contains("already full") || error_text.contains("already connected")) 
+                && !loading_link.get() && link_id.get().is_empty() {
+                    // Found an API error about connection being full, generate a new link
+                    console_log("Auto-generating new link due to API error: Connection full");
+                    request_new_link_id();
+                }
+            }
+        }
+    });
     
     // Function to generate the full connection link
     let get_connection_link = move || {
@@ -135,6 +153,28 @@ pub fn ConnectionModal(
                 </h3>
                 <div class="flex flex-col gap-4">
                     <div>
+                        {move || {
+                            if !link_error.get().is_empty() // && (
+                                //link_error.get().contains("create a new connection") || 
+                                //link_error.get().contains("already full") || 
+                                //link_error.get().contains("already connected")
+                            //) 
+                            {
+                                view! {
+                                    <div class="mt-2 p-3 bg-yellow-800 text-yellow-100 rounded">
+                                        {if link_error.get().contains("already full") {
+                                            format!("It looks like that link has already been used! A new connection will be created for {} instead.", connection_name.get())
+                                        } else if link_error.get().contains("already connected") {
+                                            format!("You're already connected! A new connection will be created for {} instead.", connection_name.get())
+                                        } else {
+                                            format!("It looks like that link has already been used! You can send this new connection link to {} instead.", connection_name.get())
+                                        }}
+                                    </div>
+                                }.into_any()
+                            } else {
+                                view! { <></> }.into_any()
+                            }
+                        }}
                         <label class="block text-sm font-medium mb-1 text-gray-200">
                              "Connect to:"
                         </label>
@@ -149,7 +189,13 @@ pub fn ConnectionModal(
                             }
                         />
                         <div class="mt-1 text-sm text-gray-400">
-                            "This is just what you'll see on your list - they'll set their own account name for themself when they connect"
+                            {move || {
+                                if get_link_id_from_url().is_some() {
+                                    "This is just what you'll see on your list - what do you call the person that sent you the link?"
+                                } else {
+                                    "This is just what you'll see on your list - they'll set their own account name for themself when they connect"
+                                }
+                            }}
                         </div>
                         {move || show_name_error.get().then(|| view! {
                             <div class="mt-2 text-red-400 text-sm" data-test-id="connection-name-error">

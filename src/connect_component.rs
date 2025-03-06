@@ -152,9 +152,15 @@ pub fn FriendsConnect() -> impl IntoView {
         
         spawn_local(async move {
             match connection_utils::create_connection(&player_id).await {
-                Ok(connection) => {
+                Ok(mut connection) => {
                     console_log(&format!("Connection created with ID: {} and link_id: {}", 
                         connection.id, connection.link_id));
+                    
+                    // Check if we already have multiple players
+                    if connection.players.len() >= 2 {
+                        console_log("Two players are connected, setting status to Active");
+                        connection.status = ConnectionStatus::Active;
+                    }
                     
                     // Save friendly name for this connection
                     if let Some(window) = web_sys::window() {
@@ -169,9 +175,17 @@ pub fn FriendsConnect() -> impl IntoView {
                     // Update current connection
                     set_current_connection.set(Some(connection.clone()));
                     
-                    // Add to connections list
+                    // Add to connections list or update existing
                     set_connections.update(|conns| {
-                        conns.push(connection);
+                        // Check if we already have this connection
+                        let existing_index = conns.iter().position(|c| c.id == connection.id);
+                        if let Some(index) = existing_index {
+                            // Update existing connection
+                            conns[index] = connection;
+                        } else {
+                            // Add new connection
+                            conns.push(connection);
+                        }
                     });
                     
                     // Close the modal
@@ -213,8 +227,15 @@ pub fn FriendsConnect() -> impl IntoView {
         
         spawn_local(async move {
             match connection_utils::join_connection(&link_id, &player_id).await {
-                Ok(connection) => {
-                    console_log(&format!("Connection joined: {}", connection.id));
+                Ok(mut connection) => {
+                    console_log(&format!("Connection joined with ID: {} and link_id: {}", 
+                        connection.id, connection.link_id));
+                    
+                    // Check if we already have multiple players
+                    if connection.players.len() >= 2 {
+                        console_log("Two players are connected, setting status to Active");
+                        connection.status = ConnectionStatus::Active;
+                    }
                     
                     // Save friendly name for this connection
                     if let Some(window) = web_sys::window() {
@@ -227,16 +248,102 @@ pub fn FriendsConnect() -> impl IntoView {
                     let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
                     
                     // Update current connection
-                    set_current_connection.set(Some(connection));
+                    set_current_connection.set(Some(connection.clone()));
+                    
+                    // Add to connections list or update existing
+                    set_connections.update(|conns| {
+                        // Check if we already have this connection
+                        let existing_index = conns.iter().position(|c| c.id == connection.id);
+                        if let Some(index) = existing_index {
+                            // Update existing connection
+                            conns[index] = connection;
+                        } else {
+                            // Add new connection
+                            conns.push(connection);
+                        }
+                    });
                     
                     // Close the modal
                     set_show_connection.set(false);
                     set_connection_name.set(String::new());
                 },
+                // Modified join_connection error handling:
                 Err(e) => {
-                    let error_msg = format!("Error joining connection: {:?}", e);
-                    console_log(&error_msg);
-                    set_api_error.set(error_msg);
+                    let error_msg = e.as_string().unwrap_or_else(|| format!("{:?}", e));
+                    console_log(&format!("Error joining connection: {}", error_msg));
+                    
+                    // Check for specific error cases we want to handle specially
+                    if error_msg.contains("Connection already has maximum players") || 
+                    error_msg.contains("Player already in connection") {
+                        
+                        // Set appropriate error message
+                        let message = if error_msg.contains("Connection already has maximum players") {
+                            format!(
+                                "This connection is already full. Creating a new one for {}.", 
+                                name_clone
+                            )
+                        } else {
+                            format!(
+                                "You're already connected! Creating a new connection for {}.", 
+                                name_clone
+                            )
+                        };
+                        set_api_error.set(message);
+                        
+                        // Clear the URL to switch to Create mode
+                        if let Some(window) = web_sys::window() {
+                            if let Ok(history) = window.history() {
+                                let _ = history.push_state_with_url(
+                                    &wasm_bindgen::JsValue::NULL, 
+                                    "", 
+                                    Some(window.location().pathname().unwrap_or_default().as_str())
+                                );
+                            }
+                        }
+                        
+                        // Immediately create a new connection
+                        let player_id_clone = player_id.clone();
+                        let name_clone2 = name_clone.clone();
+                        
+                        spawn_local(async move {
+                            match connection_utils::create_connection(&player_id_clone).await {
+                                Ok(connection) => {
+                                    console_log(&format!("Auto-created new connection with ID: {}", connection.id));
+                                    
+                                    // Save friendly name for this connection
+                                    if let Some(window) = web_sys::window() {
+                                        if let Ok(Some(storage)) = window.local_storage() {
+                                            let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone2);
+                                        }
+                                    }
+                                    
+                                    // Save the connection to localStorage
+                                    let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone2);
+                                    
+                                    // Update signals
+                                    set_current_connection.set(Some(connection.clone()));
+                                    
+                                    // Add to connections list
+                                    set_connections.update(|conns| {
+                                        conns.push(connection);
+                                    });
+                                    
+                                    // Close the modal
+                                    set_show_connection.set(false);
+                                    set_connection_name.set(String::new());
+                                },
+                                Err(e) => {
+                                    let error_msg = format!("Error creating new connection: {:?}", e);
+                                    console_log(&error_msg);
+                                    set_api_error.set(error_msg);
+                                }
+                            }
+                        });
+                    }
+                    else {
+                        // For all other errors, simply display them
+                        set_api_error.set(format!("Error joining connection: {}", error_msg));
+                    }
                 }
             }
         });
@@ -327,9 +434,10 @@ pub fn FriendsConnect() -> impl IntoView {
                             set_show_name_error.set(true);
                         } else {
                             // Check if we have a link ID in the URL
-                            if let Some(link_id) = connection_utils::get_link_id_from_url() {
+                            let url_link_id = connection_utils::get_link_id_from_url();
+                            if url_link_id.is_some() && api_error.get().is_empty() {
                                 // Join existing connection
-                                join_connection(link_id);
+                                join_connection(url_link_id.unwrap());
                             } else if let Some(connection) = existing_connection {
                                 // Use the already created connection
                                 let name_clone = connection_name.get();
