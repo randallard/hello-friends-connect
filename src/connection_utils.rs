@@ -5,10 +5,12 @@ use wasm_bindgen_futures::JsFuture;
 use serde::{Serialize, Deserialize};
 use js_sys::{Promise, JSON, Object};
 use crate::connect_component::{Connection, ConnectionStatus};
+use crate::config::get_config; 
 use uuid::Uuid;
 
-// API constants
-const API_BASE: &str = "http://64.181.233.1/friends";
+pub fn get_api_base() -> String {
+    get_config().api_base_url.clone()
+}
 
 // Structs for API requests and responses
 #[derive(Serialize, Deserialize)]
@@ -45,7 +47,6 @@ fn console_log(msg: &str) {
     console::log_1(&JsValue::from_str(msg));
 }
 
-// Create a new connection with the API service
 pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
     console_log(&format!("Creating connection for player: {}", player_id));
     
@@ -68,7 +69,7 @@ pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
     opts.headers(&headers);
     
     // Create the request
-    let url = format!("{}/connections", API_BASE);
+    let url = format!("{}/connections", get_api_base());
     let request = Request::new_with_str_and_init(&url, &opts)?;
     
     // Fetch the request
@@ -86,14 +87,34 @@ pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
     
     // Parse the response as JSON
     let json = JsFuture::from(resp.json()?).await?;
+    
+    // Check if response has a connection field or is directly a connection
+    if let Ok(response_obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(json.clone()) {
+        if let Some(connection_value) = response_obj.get("connection") {
+            // New format with connection field and websocket_url
+            let connection_data: Connection = serde_wasm_bindgen::from_value(
+                serde_wasm_bindgen::to_value(connection_value)?
+            )?;
+            
+            // Optionally log the WebSocket URL
+            if let Some(ws_url) = response_obj.get("websocket_url") {
+                if let Some(url_str) = ws_url.as_str() {
+                    console_log(&format!("Server provided WebSocket URL: {}", url_str));
+                }
+            }
+            
+            console_log(&format!("Connection created with ID: {}", connection_data.id));
+            return Ok(connection_data);
+        }
+    }
+    
+    // Fallback to direct parsing (old format)
     let connection_data: Connection = serde_wasm_bindgen::from_value(json)?;
-    
     console_log(&format!("Connection created with ID: {}", connection_data.id));
-    
     Ok(connection_data)
 }
 
-// Join an existing connection using the API service
+// Similarly update join_connection function to handle the WebSocket URL
 pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connection, JsValue> {
     console_log(&format!("Joining connection with link ID: {} for player: {}", link_id, player_id));
     
@@ -115,7 +136,7 @@ pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connectio
     opts.headers(&headers);
     
     // Create the request
-    let url = format!("{}/connections/link/{}/join", API_BASE, link_id);
+    let url = format!("{}/connections/link/{}/join", get_api_base(), link_id);
     let request = Request::new_with_str_and_init(&url, &opts)?;
     
     // Fetch the request
@@ -123,7 +144,7 @@ pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connectio
     let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
     let resp: Response = resp_value.dyn_into()?;
     
-    // Enhanced error handling in join_connection function in connection_utils.rs
+    // Enhanced error handling
     if !resp.ok() {
         let status = resp.status();
         let status_text = resp.status_text();
@@ -149,12 +170,33 @@ pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connectio
     
     // Parse the response as JSON
     let json = JsFuture::from(resp.json()?).await?;
+    
+    // Check if response has a connection field or is directly a connection
+    if let Ok(response_obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(json.clone()) {
+        if let Some(connection_value) = response_obj.get("connection") {
+            // New format with connection field and websocket_url
+            let connection_data: Connection = serde_wasm_bindgen::from_value(
+                serde_wasm_bindgen::to_value(connection_value)?
+            )?;
+            
+            // Optionally log the WebSocket URL
+            if let Some(ws_url) = response_obj.get("websocket_url") {
+                if let Some(url_str) = ws_url.as_str() {
+                    console_log(&format!("Server provided WebSocket URL: {}", url_str));
+                }
+            }
+            
+            console_log(&format!("Joined connection with ID: {}", connection_data.id));
+            return Ok(connection_data);
+        }
+    }
+    
+    // Fallback to direct parsing (old format)
     let connection_data: Connection = serde_wasm_bindgen::from_value(json)?;
-    
     console_log(&format!("Joined connection with ID: {}", connection_data.id));
-    
     Ok(connection_data)
 }
+
 
 // Helper function to save connection name in localStorage
 fn save_connection_name(connection_id: &str, name: &str) {
@@ -197,7 +239,7 @@ pub async fn get_connection_by_link_id(link_id: &str) -> Result<Connection, JsVa
     opts.headers(&headers);
     
     // Create the request
-    let url = format!("{}/connections/link/{}", API_BASE, link_id);
+    let url = format!("{}/connections/link/{}", get_api_base(), link_id);
     let request = Request::new_with_str_and_init(&url, &opts)?;
     
     // Fetch the request
@@ -308,7 +350,7 @@ pub async fn poll_notifications(player_id: &str) -> Result<Vec<String>, JsValue>
     opts.headers(&headers);
     
     // Create the request
-    let url = format!("{}/players/{}/notifications", API_BASE, player_id);
+    let url = format!("{}/players/{}/notifications", get_api_base(), player_id);
     let request = Request::new_with_str_and_init(&url, &opts)?;
     
     // Fetch the request
@@ -348,7 +390,7 @@ async fn acknowledge_notifications(player_id: &str) -> Result<(), JsValue> {
     opts.headers(&headers);
     
     // Create the request
-    let url = format!("{}/players/{}/notifications/ack", API_BASE, player_id);
+    let url = format!("{}/players/{}/notifications/ack", get_api_base(), player_id);
     let request = Request::new_with_str_and_init(&url, &opts)?;
     
     // Fetch the request
@@ -394,7 +436,7 @@ pub async fn send_message(connection_id: &str, player_id: &str, content: &str) -
     opts.headers(&headers);
     
     // Create the request
-    let url = format!("{}/connections/{}/messages", API_BASE, connection_id);
+    let url = format!("{}/connections/{}/messages", get_api_base(), connection_id);
     let request = Request::new_with_str_and_init(&url, &opts)?;
     
     // Fetch the request

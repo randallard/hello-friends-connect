@@ -4,7 +4,7 @@ use web_sys::{window, UrlSearchParams, console};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::connection_utils::get_link_id_from_url;
+use crate::connection_utils::{get_link_id_from_url,get_api_base};
 use crate::connect_component::{Connection, get_stored_player_id};
 
 #[component]
@@ -131,7 +131,7 @@ pub fn ConnectionModal(
         
         let window = window().expect("should have window");
         let location = window.location();
-        let origin = location.origin().unwrap_or_else(|_| "http://64.181.233.1".to_string());
+        let origin = location.origin().unwrap_or_else(|_| get_api_base());
         let pathname = location.pathname().unwrap_or_else(|_| "/".to_string());
         
         format!("{}{}?link={}", origin, pathname, link_id.get())

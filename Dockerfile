@@ -1,7 +1,11 @@
 FROM rust:1.81 as builder
 
+ARG API_BASE=http://64.181.233.1/friends
+
 # Prevent tzdata from requesting interactive input
 ENV DEBIAN_FRONTEND=noninteractive
+
+ENV API_BASE=$API_BASE
 
 # Install basic dependencies
 RUN apt-get update && apt-get install -y \
@@ -36,7 +40,7 @@ RUN npm install tailwindcss @tailwindcss/cli
 RUN npx @tailwindcss/cli -i ./input.css -o ./output.css
 
 RUN cat Trunk.toml
-RUN echo "Building with public_url = /hello-friends/"
+RUN echo "Building with public_url = /hello-friends/ and API_BASE = $API_BASE"
 RUN trunk build --release --public-url="/hello-friends/"
 
 # Expose port

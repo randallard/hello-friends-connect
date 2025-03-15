@@ -2,6 +2,7 @@
 target = "index.html"
 dist = "dist"
 # release=true
+env = { API_BASE = "${API_BASE}" }
 
 [watch]
 ignore = ["dist/"]

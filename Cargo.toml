@@ -25,6 +25,8 @@ features = [
     "EventTarget",
     "HtmlElement",
     "HtmlInputElement",
+    "Notification",
+    "NotificationOptions",
     "Storage",
     "Window",
 ]

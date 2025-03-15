@@ -13,11 +13,13 @@ pub fn ConnectionItem(
     #[prop(optional)] on_delete: Option<Callback<String>>,
 ) -> impl IntoView {
     // Create local clone of connection values to avoid ownership issues
-    let status = create_rw_signal(connection.status);
     let connection_id = create_rw_signal(connection.id.clone());
     let connection_name = create_rw_signal(name);
     let show_view_modal = create_rw_signal(false);
     let show_expired_modal = create_rw_signal(false);
+    let connection_signal = create_rw_signal(connection);
+    let status = Signal::derive(move || connection_signal.get().status);
+
     
     // Create a signal to track if this component is still valid
     // This helps prevent errors when trying to access deleted connections
@@ -183,12 +185,15 @@ pub fn ConnectionItem(
                 if show_view_modal.get() && is_valid.get() {
                     let name_signal = create_signal(connection_name.get());
                     
+                    // Get the current connection from the signal
+                    let current_connection = connection_signal.get();
+                    
                     view! {
                         <ConnectionModal
                             connection_name=name_signal.0
                             show_name_error=create_signal(false).0
                             is_view_mode=true
-                            connection_link_id=connection.link_id.clone()
+                            connection_link_id=current_connection.link_id.clone()
                             on_name_change=Callback::new(move |_| {
                                 // No-op for view mode
                             })

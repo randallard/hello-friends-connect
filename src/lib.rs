@@ -1,11 +1,15 @@
 use leptos::*;
 
+pub mod config;
+
 pub mod connect_component;
 use connect_component::FriendsConnect;
 
 pub mod connection_modal;
 pub mod connection_item;
 pub mod connection_utils;
+pub mod notification_component;
+pub mod websocket_client;
 
 #[cfg(test)]
 mod connection_utils_test;
