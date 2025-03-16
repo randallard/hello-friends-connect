@@ -2,12 +2,13 @@
 
 use std::cell::RefCell;
 
+use leptos::reactive::wrappers::write::SignalSetter;
 use web_sys::{WebSocket, MessageEvent, ErrorEvent, CloseEvent};
 use wasm_bindgen::{prelude::*, JsCast};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use leptos::*;
-use leptos::prelude::{Callable, Callback};
+use leptos::prelude::{Callable, Callback, RwSignal, Set, WriteSignal};
 use crate::config::get_config;
 
 thread_local! {
@@ -53,6 +54,7 @@ pub fn setup_websocket(
     player_id: String, 
     on_connection_active: Callback<String>,
     on_notification: Callback<String>,
+    connection_status: RwSignal<bool>,
 ) -> Result<WebSocket, JsValue> {
     // Create WebSocket connection
     let api_url = get_config().api_base_url.clone();
@@ -179,12 +181,29 @@ pub fn setup_websocket(
         // Set up a heartbeat to keep the connection alive
         let ws_heartbeat = ws_clone.clone();
 
+        // Reset heartbeat counter to zero when connection is established
         if let Some(window) = web_sys::window() {
             let _ = js_sys::Reflect::set(
                 &window,
                 &JsValue::from_str("missed_heartbeats"),
                 &JsValue::from_f64(0.0),
             );
+        }
+        
+        // Send an initial message to verify the connection works
+        if ws_clone.ready_state() == WebSocket::OPEN {
+            let initial_message = WsMessage {
+                event_type: "connection_check".to_string(),
+                payload: serde_json::json!({}),
+            };
+            
+            if let Ok(message_json) = serde_json::to_string(&initial_message) {
+                if let Err(e) = ws_clone.send_with_str(&message_json) {
+                    console_log(&format!("Failed to send initial connection check message: {:?}", e));
+                } else {
+                    console_log("Sent initial connection check message");
+                }
+            }
         }
 
         spawn_local(async move {
@@ -244,6 +263,8 @@ pub fn setup_websocket(
     // Setup error handler
     let error_callback = Closure::wrap(Box::new(move |e: ErrorEvent| {
         console_log(&format!("WebSocket error: {:?}", e));
+        // Ensure connection status is set to false on error
+        connection_status.set(false);
     }) as Box<dyn FnMut(ErrorEvent)>);
     
     ws.set_onerror(Some(error_callback.as_ref().unchecked_ref()));

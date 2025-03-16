@@ -67,7 +67,7 @@ pub fn FriendsConnect() -> impl IntoView {
 
     let websocket_id = format!("ws_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
     let (websocket_initialized, set_websocket_initialized) = create_signal(false);
-    let (connection_status, set_connection_status) = create_signal(false);
+    let connection_status = create_rw_signal(false);
     
     // Signal for active connections
     let (connections, set_connections) = signal(Vec::<Connection>::new());
@@ -134,88 +134,162 @@ pub fn FriendsConnect() -> impl IntoView {
     });
 
     let websocket_id_clone1 = websocket_id.clone();
+    let on_connection_active_clone = on_connection_active.clone();
+    let connection_status_clone = connection_status.clone();
 
-    // Setup a single WebSocket for the player
-    Effect::new(move |_| {
-        if let Some(player_id) = get_stored_player_id() {
-            console_log(&format!("Setting up WebSocket for player: {}", player_id));            
+    async fn setup_websocket_async(
+        player_id: String,
+        websocket_id: String,
+        on_connection_active: Callback<String>,
+        on_notification: Callback<String>,
+        connection_status: RwSignal<bool>
+    ) {
+        
+        let console_log = move |msg: &str| {
+            console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+        };
+        // Set up the WebSocket with both callbacks
+        match setup_websocket(player_id, on_connection_active, on_notification, connection_status) {
+            Ok(ws) => {
+                console_log("WebSocket successfully set up");
+                
+                // Set up open handler before storing the WebSocket
+                let connection_status_clone = connection_status;
+                let ws_clone = ws.clone();
+                let open_handler = Closure::wrap(Box::new(move |_| {
+                    console_log("WebSocket connection open, updating UI status");
+                    connection_status_clone.set(true);
+                }) as Box<dyn FnMut(JsValue)>);
+                
+                ws_clone.set_onopen(Some(open_handler.as_ref().unchecked_ref()));
+                open_handler.forget();
+                
+                // Set up close handler
+                let connection_status_clone = connection_status;
+                let ws_clone2 = ws.clone();
+                let close_handler = Closure::wrap(Box::new(move |_| {
+                    console_log("WebSocket connection closed, updating UI status");
+                    connection_status_clone.set(false);
+                }) as Box<dyn FnMut(JsValue)>);
+                
+                ws_clone2.set_onclose(Some(close_handler.as_ref().unchecked_ref()));
+                close_handler.forget();
+                
+                // Now store the WebSocket after handlers are set up
+                store_web_socket(&websocket_id, ws);
+                // We can't access set_websocket_initialized here
+                
+                // Start heartbeat monitoring
+                start_heartbeat_monitoring(websocket_id, connection_status).await;
+            },
+            Err(e) => {
+                console_log(&format!("Failed to set up WebSocket: {:?}", e));
+                // Ensure connection status is false on error
+                connection_status.set(false);
+            }
+        }
+    }
+    
+    async fn start_heartbeat_monitoring(
+        websocket_id: String,
+        connection_status: RwSignal<bool>
+    ) {
+
+        let console_log = move |msg: &str| {
+            console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+        };
+
+        loop {
+            // Check heartbeat status every 10 seconds
+            gloo_timers::future::TimeoutFuture::new(10000).await;
             
-            let on_connection_active_ws = on_connection_active.clone();
+            // Check WebSocket readyState first
+            if let Some(ws) = get_web_socket(&websocket_id) {
+                if ws.ready_state() != WebSocket::OPEN {
+                    // WebSocket is not open, set status to false
+                    console_log("WebSocket is not in OPEN state, updating connection status");
+                    connection_status.set(false);
+                    continue;
+                }
+            } else {
+                // WebSocket not found, set status to false
+                connection_status.set(false);
+                continue;
+            }
             
-            // Create a callback for notifications
-            let on_notification = Callback::new(move |message: String| {
-                console_log(&format!("Notification received via WebSocket: {}", message));
-                add_notification(message);
-            });
-            
-            // Set up the WebSocket with both callbacks
-            match setup_websocket(player_id, on_connection_active_ws, on_notification) {
-                Ok(ws) => {
-                    console_log("WebSocket successfully set up");
+            // Check missed heartbeats counter from window object
+            if let Some(window) = web_sys::window() {
+                if let Ok(count) = js_sys::Reflect::get(
+                    &window,
+                    &JsValue::from_str("missed_heartbeats"),
+                ) {
+                    let missed_count = count.as_f64().unwrap_or(0.0) as u8;
                     
-                    // Set up open handler before storing the WebSocket
-                    let connection_status_setter = set_connection_status.clone();
-                    let ws_clone = ws.clone();
-                    let open_handler = Closure::wrap(Box::new(move |_| {
-                        console_log("WebSocket connection open, updating UI status");
-                        connection_status_setter.set(true);
-                    }) as Box<dyn FnMut(JsValue)>);
-                    
-                    ws_clone.set_onopen(Some(open_handler.as_ref().unchecked_ref()));
-                    open_handler.forget();
-                    
-                    // Set up close handler
-                    let close_status_setter = set_connection_status.clone();
-                    let ws_clone2 = ws.clone();
-                    let close_handler = Closure::wrap(Box::new(move |_| {
-                        console_log("WebSocket connection closed, updating UI status");
-                        close_status_setter.set(false);
-                    }) as Box<dyn FnMut(JsValue)>);
-                    
-                    ws_clone2.set_onclose(Some(close_handler.as_ref().unchecked_ref()));
-                    close_handler.forget();
-                    
-                    // Now store the WebSocket after handlers are set up
-                    store_web_socket(&websocket_id_clone1, ws);
-                    set_websocket_initialized.set(true);
-                    
-                    // Monitor heartbeat status for connection health
-                    let status_setter = set_connection_status.clone();
-                    spawn_local(async move {
-                        loop {
-                            // Check heartbeat status every 10 seconds
-                            gloo_timers::future::TimeoutFuture::new(10000).await;
-                            
-                            // Check missed heartbeats counter from window object
-                            if let Some(window) = web_sys::window() {
-                                if let Ok(count) = js_sys::Reflect::get(
-                                    &window,
-                                    &JsValue::from_str("missed_heartbeats"),
-                                ) {
-                                    let missed_count = count.as_f64().unwrap_or(0.0) as u8;
-                                    
-                                    // If we've missed too many heartbeats, consider the connection lost
-                                    if missed_count >= 3 {
-                                        console_log("Connection considered lost due to missed heartbeats");
-                                        status_setter.set(false);
-                                    } else if missed_count == 0 {
-                                        // Ensure status is set to connected if heartbeats are being acknowledged
-                                        status_setter.set(true);
-                                    }
-                                }
-                            }
-                        }
-                    });
-                },
-                Err(e) => {
-                    console_log(&format!("Failed to set up WebSocket: {:?}", e));
-                    // Ensure connection status is false on error
-                    set_connection_status.set(false);
+                    // If we've missed too many heartbeats, consider the connection lost
+                    if missed_count >= 3 {
+                        console_log("Connection considered lost due to missed heartbeats");
+                        connection_status.set(false);
+                    } else if missed_count == 0 && 
+                            get_web_socket(&websocket_id)
+                                .map_or(false, |ws| ws.ready_state() == WebSocket::OPEN) {
+                        // Only set to true if websocket is actually open AND heartbeats are being acknowledged
+                        connection_status.set(true);
+                    }
                 }
             }
         }
-    });
+    }
 
+// Setup a single WebSocket for the player
+Effect::new(move |_| {
+    if let Some(player_id) = get_stored_player_id() {
+        console_log(&format!("Setting up WebSocket for player: {}", player_id));
+        
+        // Clone the ID to use in the callbacks
+        let player_id_clone = player_id.clone();
+        let websocket_id_for_callbacks = websocket_id_clone1.clone();
+        
+        // Store connection status as a local variable
+        let connection_status_for_effect = connection_status_clone;
+        
+        // Create a fresh new callback here
+        let on_connection_active_ws = Callback::new(move |connection_id: String| {
+            console_log(&format!("Connection is now active: {}", connection_id));
+            
+            // Play a notification sound
+            if let Some(window) = web_sys::window() {
+                if let Some(document) = window.document() {
+                    if let Ok(audio) = web_sys::HtmlAudioElement::new_with_src("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU") {
+                        let _ = audio.play();
+                    }
+                }
+            }
+            
+            // Add a notification about the connection becoming active
+            add_notification(format!("Connection is now active! Both players are connected."));
+        });
+        
+        // Create a notification callback
+        let on_notification = Callback::new(move |message: String| {
+            console_log(&format!("Notification received via WebSocket: {}", message));
+            add_notification(message);
+        });
+        
+        // Initialize connection status to false
+        connection_status_for_effect.set(false);
+        
+        // Let's handle setting up the WebSocket in a separate function
+        spawn_local(async move {
+            setup_websocket_async(
+                player_id_clone, 
+                websocket_id_for_callbacks, 
+                on_connection_active_ws, 
+                on_notification,
+                connection_status_for_effect
+            ).await;
+        });
+    }
+});
     // Ensure a player ID exists
     Effect::new(move |_| {
         if get_stored_player_id().is_none() {
@@ -581,8 +655,10 @@ pub fn FriendsConnect() -> impl IntoView {
 // Fix the View macro with all Fn trait issues resolved
 view! {
     <div id="friends-connect-container" class="max-w-md mx-auto p-4 bg-gray-900 text-gray-100">
-        <h2 class="text-xl font-bold mb-4 text-gray-100">"Connect with Friends"</h2>
-        <ConnectionStatus connected=connection_status />
+        <div class="flex items-center mb-4">
+            <ConnectionStatus connected=connection_status />
+            <h2 class="text-xl font-bold ml-2 text-gray-100">"Connect with Friends"</h2>
+        </div>
         
         // API error message
         <Show
