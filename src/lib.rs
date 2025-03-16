@@ -8,6 +8,7 @@ use connect_component::FriendsConnect;
 pub mod connection_modal;
 pub mod connection_item;
 pub mod connection_utils;
+pub mod connection_status;
 pub mod notification_component;
 pub mod websocket_client;
 

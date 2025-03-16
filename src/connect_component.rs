@@ -1,6 +1,7 @@
 use leptos::*;
 use leptos::prelude::*;  
 use serde::{Serialize, Deserialize};
+use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::{JsValue,JsCast};
 use std::ops::Not;
 use wasm_bindgen_futures::spawn_local;
@@ -11,6 +12,7 @@ use crate::connection_utils;
 use crate::connection_item::ConnectionItem;
 use crate::notification_component::{NotificationList, start_notification_polling, add_notification};
 use crate::websocket_client::{setup_websocket, join_connection_via_ws};
+use crate::connection_status::ConnectionStatus;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConnectionModalMode {
@@ -65,6 +67,7 @@ pub fn FriendsConnect() -> impl IntoView {
 
     let websocket_id = format!("ws_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
     let (websocket_initialized, set_websocket_initialized) = create_signal(false);
+    let (connection_status, set_connection_status) = create_signal(false);
     
     // Signal for active connections
     let (connections, set_connections) = signal(Vec::<Connection>::new());
@@ -149,11 +152,65 @@ pub fn FriendsConnect() -> impl IntoView {
             match setup_websocket(player_id, on_connection_active_ws, on_notification) {
                 Ok(ws) => {
                     console_log("WebSocket successfully set up");
+                    
+                    // Set up open handler before storing the WebSocket
+                    let connection_status_setter = set_connection_status.clone();
+                    let ws_clone = ws.clone();
+                    let open_handler = Closure::wrap(Box::new(move |_| {
+                        console_log("WebSocket connection open, updating UI status");
+                        connection_status_setter.set(true);
+                    }) as Box<dyn FnMut(JsValue)>);
+                    
+                    ws_clone.set_onopen(Some(open_handler.as_ref().unchecked_ref()));
+                    open_handler.forget();
+                    
+                    // Set up close handler
+                    let close_status_setter = set_connection_status.clone();
+                    let ws_clone2 = ws.clone();
+                    let close_handler = Closure::wrap(Box::new(move |_| {
+                        console_log("WebSocket connection closed, updating UI status");
+                        close_status_setter.set(false);
+                    }) as Box<dyn FnMut(JsValue)>);
+                    
+                    ws_clone2.set_onclose(Some(close_handler.as_ref().unchecked_ref()));
+                    close_handler.forget();
+                    
+                    // Now store the WebSocket after handlers are set up
                     store_web_socket(&websocket_id_clone1, ws);
                     set_websocket_initialized.set(true);
+                    
+                    // Monitor heartbeat status for connection health
+                    let status_setter = set_connection_status.clone();
+                    spawn_local(async move {
+                        loop {
+                            // Check heartbeat status every 10 seconds
+                            gloo_timers::future::TimeoutFuture::new(10000).await;
+                            
+                            // Check missed heartbeats counter from window object
+                            if let Some(window) = web_sys::window() {
+                                if let Ok(count) = js_sys::Reflect::get(
+                                    &window,
+                                    &JsValue::from_str("missed_heartbeats"),
+                                ) {
+                                    let missed_count = count.as_f64().unwrap_or(0.0) as u8;
+                                    
+                                    // If we've missed too many heartbeats, consider the connection lost
+                                    if missed_count >= 3 {
+                                        console_log("Connection considered lost due to missed heartbeats");
+                                        status_setter.set(false);
+                                    } else if missed_count == 0 {
+                                        // Ensure status is set to connected if heartbeats are being acknowledged
+                                        status_setter.set(true);
+                                    }
+                                }
+                            }
+                        }
+                    });
                 },
                 Err(e) => {
                     console_log(&format!("Failed to set up WebSocket: {:?}", e));
+                    // Ensure connection status is false on error
+                    set_connection_status.set(false);
                 }
             }
         }
@@ -525,6 +582,7 @@ pub fn FriendsConnect() -> impl IntoView {
 view! {
     <div id="friends-connect-container" class="max-w-md mx-auto p-4 bg-gray-900 text-gray-100">
         <h2 class="text-xl font-bold mb-4 text-gray-100">"Connect with Friends"</h2>
+        <ConnectionStatus connected=connection_status />
         
         // API error message
         <Show
