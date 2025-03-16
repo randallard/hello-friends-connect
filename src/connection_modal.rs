@@ -134,9 +134,10 @@ pub fn ConnectionModal(
         let origin = location.origin().unwrap_or_else(|_| get_api_base());
         let pathname = location.pathname().unwrap_or_else(|_| "/".to_string());
         
+        // Use link_id.get() inside the closure to ensure reactive updates
         format!("{}{}?link={}", origin, pathname, link_id.get())
     };
-    
+
     view! {
         <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
             <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-gray-100 border border-gray-700">
@@ -154,11 +155,7 @@ pub fn ConnectionModal(
                 <div class="flex flex-col gap-4">
                     <div>
                         {move || {
-                            if !link_error.get().is_empty() // && (
-                                //link_error.get().contains("create a new connection") || 
-                                //link_error.get().contains("already full") || 
-                                //link_error.get().contains("already connected")
-                            //) 
+                            if !link_error.get().is_empty() 
                             {
                                 view! {
                                     <div class="mt-2 p-3 bg-yellow-800 text-yellow-100 rounded">

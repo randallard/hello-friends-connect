@@ -1,7 +1,7 @@
 use leptos::*;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{Event, MouseEvent};
+use web_sys::{console, Event, MouseEvent};
 
 use crate::connect_component::{Connection, ConnectionStatus};
 use crate::connection_modal::ConnectionModal;
@@ -20,7 +20,10 @@ pub fn ConnectionItem(
     let connection_signal = create_rw_signal(connection);
     let status = Signal::derive(move || connection_signal.get().status);
 
-    
+    let console_log = move |msg: &str| {
+        console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+    };
+
     // Create a signal to track if this component is still valid
     // This helps prevent errors when trying to access deleted connections
     let is_valid = create_rw_signal(true);
@@ -117,7 +120,7 @@ pub fn ConnectionItem(
                 
                 view! {
                     <>
-                        <div class="font-medium">{connection_name}</div>
+                        <div class="font-medium">{move || connection_name.get()}</div>
                         <div>
                             - / -
                             <button 
@@ -128,10 +131,22 @@ pub fn ConnectionItem(
                                 }}
                                 on:click=handle_status_click
                             >
-                                {move || match status.get() {
-                                    ConnectionStatus::Pending => "Pending",
-                                    ConnectionStatus::Active => "Active",
-                                    ConnectionStatus::Expired => "Expired",
+                                {move || {
+                                    let conn_id = connection_id.get();
+                                    match status.get() {
+                                        ConnectionStatus::Pending => {
+                                            console_log(&format!("Rendering Pending status for connection: {}", conn_id));
+                                            "Pending"
+                                        },
+                                        ConnectionStatus::Active => {
+                                            console_log(&format!("Rendering Active status for connection: {}", conn_id));
+                                            "Active"
+                                        },
+                                        ConnectionStatus::Expired => {
+                                            console_log(&format!("Rendering Expired status for connection: {}", conn_id));
+                                            "Expired"
+                                        },
+                                    }
                                 }}
                             </button>
                         </div>
@@ -139,7 +154,7 @@ pub fn ConnectionItem(
                 }.into_any()
             }}
             
-            // Modal for expired connections
+            // Fix modal for expired connections - properly wrap reactive signals
             {move || {
                 if show_expired_modal.get() && is_valid.get() {
                     view! {
@@ -179,13 +194,15 @@ pub fn ConnectionItem(
                     view! { <></> }.into_any()
                 }
             }}
-
-            // View modal for pending connections
+    
+            // Fix View modal for pending connections - properly capture reactive values
             {move || {
                 if show_view_modal.get() && is_valid.get() {
-                    let name_signal = create_signal(connection_name.get());
+                    // Clone connection_name to use it in the create_signal
+                    let name_value = connection_name.get();
+                    let name_signal = create_signal(name_value);
                     
-                    // Get the current connection from the signal
+                    // Get the current connection from the signal - create a clone to avoid reactivity issues
                     let current_connection = connection_signal.get();
                     
                     view! {

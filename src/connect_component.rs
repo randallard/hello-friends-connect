@@ -80,26 +80,32 @@ pub fn FriendsConnect() -> impl IntoView {
     let current_connection_setter = set_current_connection.clone();
     let on_connection_active = Callback::new(move |connection_id: String| {
         console_log(&format!("Connection is now active: {}", connection_id));
-    
+
         // Update the connection status in our list
         connections_setter.update(|conns| {
+            let mut updated = false;
             for conn in conns.iter_mut() {
                 if conn.id == connection_id {
-                    console_log("Updating connection status to Active");
+                    console_log(&format!("Updating connection status to Active for {}", connection_id));
                     conn.status = ConnectionStatus::Active;
+                    updated = true;
                     break;
                 }
             }
+            if !updated {
+                console_log(&format!("Warning: Connection {} not found in list", connection_id));
+            }
         });
         
-        // Also update current_connection if it matches
-        if let Some(current_conn) = current_connection_getter.get() {
-            if current_conn.id == connection_id {
-                let mut updated_conn = current_conn.clone();
-                updated_conn.status = ConnectionStatus::Active;
-                current_connection_setter.set(Some(updated_conn));
+        current_connection_setter.update(|curr_conn| {
+            if let Some(conn) = curr_conn {
+                if conn.id == connection_id {
+                    let mut updated_conn = conn.clone();
+                    updated_conn.status = ConnectionStatus::Active;
+                    *curr_conn = Some(updated_conn);
+                }
             }
-        }
+        });
         
         // Play a notification sound to alert the user
         if let Some(window) = web_sys::window() {

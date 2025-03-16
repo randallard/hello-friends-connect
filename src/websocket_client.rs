@@ -1,5 +1,7 @@
 // In websocket_client.rs - modify to support single WebSocket for all connections
 
+use std::cell::RefCell;
+
 use web_sys::{WebSocket, MessageEvent, ErrorEvent, CloseEvent};
 use wasm_bindgen::{prelude::*, JsCast};
 use serde::{Deserialize, Serialize};
@@ -8,10 +10,21 @@ use leptos::*;
 use leptos::prelude::{Callable, Callback};
 use crate::config::get_config;
 
+thread_local! {
+    static NOTIFICATIONS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 struct WsMessage {
     event_type: String,
     payload: serde_json::Value,
+}
+
+// Used to track heartbeat state
+#[derive(Clone, Debug)]
+struct HeartbeatState {
+    last_ack_timestamp: Option<i64>,
+    missed_count: u8,
 }
 
 fn show_notification(message: String) {
@@ -61,12 +74,13 @@ pub fn setup_websocket(
     let on_message_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
         if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
             let message = String::from(txt);
-            console_log(&format!("WebSocket message received: {}", message));
-            
+            if !message.contains("heartbeat_ack") {
+                console_log(&format!("WebSocket message received: {}", message));
+            }
             // Try to parse the message as JSON
             if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&message) {
                 match ws_msg.event_type.as_str() {
-                    "connection_status_updated" | "status_update" => {
+                    "connection_status_updated" | "status_update" | "connection_updated" => {
                         if let Some(status) = ws_msg.payload.get("status").and_then(|s| s.as_str()) {
                             if status == "Active" {
                                 if let Some(conn_id) = ws_msg.payload.get("connection_id").and_then(|id| id.as_str()) {
@@ -82,6 +96,14 @@ pub fn setup_websocket(
                         if let Some(notification_msg) = ws_msg.payload.get("message").and_then(|m| m.as_str()) {
                             console_log(&format!("Notification received: {}", notification_msg));
                             on_notification.run(notification_msg.to_string());
+                            
+                            // Check if this is a "player joined" notification
+                            if notification_msg.contains("joined your connection") {
+                                if let Some(conn_id) = ws_msg.payload.get("connection_id").and_then(|id| id.as_str()) {
+                                    console_log(&format!("Player joined connection {}, marking as active", conn_id));
+                                    on_connection_active.run(conn_id.to_string());
+                                }
+                            }
                         }
                     },
                     "new_message" => {
@@ -99,6 +121,21 @@ pub fn setup_websocket(
                     "welcome" => {
                         // Handle welcome message
                         console_log("WebSocket connection established successfully");
+                    },
+                    "heartbeat_ack" => {
+                        // Reset missed heartbeat counter since we received an ack
+                        if let Some(timestamp) = ws_msg.payload.get("timestamp").and_then(|t| t.as_i64()) {
+                            // We could store this timestamp if needed for monitoring
+                            
+                            // Reset missed heartbeats in our tracking
+                            if let Some(window) = web_sys::window() {
+                                let _ = js_sys::Reflect::set(
+                                    &window,
+                                    &JsValue::from_str("missed_heartbeats"),
+                                    &JsValue::from_f64(0.0),
+                                );
+                            }
+                        }
                     },
                     "join_connection_ack" => {
                         // Handle join connection acknowledgment
@@ -141,10 +178,42 @@ pub fn setup_websocket(
         
         // Set up a heartbeat to keep the connection alive
         let ws_heartbeat = ws_clone.clone();
+
+        if let Some(window) = web_sys::window() {
+            let _ = js_sys::Reflect::set(
+                &window,
+                &JsValue::from_str("missed_heartbeats"),
+                &JsValue::from_f64(0.0),
+            );
+        }
+
         spawn_local(async move {
             loop {
                 // Send a heartbeat every 30 seconds
                 gloo_timers::future::TimeoutFuture::new(30000).await;
+
+
+                let mut missed_count = 0;
+                if let Some(window) = web_sys::window() {
+                    if let Ok(count) = js_sys::Reflect::get(
+                        &window,
+                        &JsValue::from_str("missed_heartbeats"),
+                    ) {
+                        missed_count = count.as_f64().unwrap_or(0.0) as u8;
+                        
+                        // Increment the counter
+                        let _ = js_sys::Reflect::set(
+                            &window,
+                            &JsValue::from_str("missed_heartbeats"),
+                            &JsValue::from_f64((missed_count + 1) as f64),
+                        );
+                        
+                        // Log if we've missed too many
+                        if missed_count >= 2 {
+                            console_log(&format!("Warning: {} consecutive heartbeats missed", missed_count));
+                        }
+                    }
+                }
                 
                 if ws_heartbeat.ready_state() == WebSocket::OPEN {
                     let heartbeat = WsMessage {
@@ -154,7 +223,11 @@ pub fn setup_websocket(
                     
                     if let Ok(heartbeat_json) = serde_json::to_string(&heartbeat) {
                         let _ = ws_heartbeat.send_with_str(&heartbeat_json);
-                        console_log("WebSocket heartbeat sent");
+                        // Only log this once when we start the heartbeat process
+                        static FIRST_HEARTBEAT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+                        if FIRST_HEARTBEAT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                            console_log("WebSocket heartbeat monitoring started");
+                        }
                     }
                 } else {
                     // Connection is closed, stop the heartbeat
