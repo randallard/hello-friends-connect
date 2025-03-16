@@ -1,6 +1,7 @@
 use leptos::*;
 use leptos::prelude::*;  
 use serde::{Serialize, Deserialize};
+use wasm_bindgen::{JsValue,JsCast};
 use std::ops::Not;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{console, WebSocket};
@@ -34,7 +35,25 @@ pub struct Connection {
     pub expires_at: i64,
 }
 
-// In connect_component.rs - modify the FriendsConnect component to use a single WebSocket
+fn store_web_socket(id: &str, ws: WebSocket) {
+    if let Some(window) = web_sys::window() {
+        let _ = js_sys::Reflect::set(
+            &window,
+            &JsValue::from_str(id),
+            &ws,
+        );
+    }
+}
+
+fn get_web_socket(id: &str) -> Option<WebSocket> {
+    web_sys::window().and_then(|window| {
+        js_sys::Reflect::get(
+            &window,
+            &JsValue::from_str(id),
+        ).ok()
+        .and_then(|val| val.dyn_into::<WebSocket>().ok())
+    })
+}
 
 #[component]
 pub fn FriendsConnect() -> impl IntoView {
@@ -44,9 +63,9 @@ pub fn FriendsConnect() -> impl IntoView {
     let (api_error, set_api_error) = signal(String::new());
     let (current_connection, set_current_connection) = signal(None::<Connection>);
 
-    // Single WebSocket signal instead of a StoredValue
-    let (websocket, set_websocket) = signal(None::<WebSocket>);
-
+    let websocket_id = format!("ws_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+    let (websocket_initialized, set_websocket_initialized) = create_signal(false);
+    
     // Signal for active connections
     let (connections, set_connections) = signal(Vec::<Connection>::new());
 
@@ -105,6 +124,8 @@ pub fn FriendsConnect() -> impl IntoView {
         }
     });
 
+    let websocket_id_clone1 = websocket_id.clone();
+
     // Setup a single WebSocket for the player
     Effect::new(move |_| {
         if let Some(player_id) = get_stored_player_id() {
@@ -122,7 +143,8 @@ pub fn FriendsConnect() -> impl IntoView {
             match setup_websocket(player_id, on_connection_active_ws, on_notification) {
                 Ok(ws) => {
                     console_log("WebSocket successfully set up");
-                    set_websocket.set(Some(ws));
+                    store_web_socket(&websocket_id_clone1, ws);
+                    set_websocket_initialized.set(true);
                 },
                 Err(e) => {
                     console_log(&format!("Failed to set up WebSocket: {:?}", e));
@@ -155,12 +177,16 @@ pub fn FriendsConnect() -> impl IntoView {
             set_show_connection.set(true);
         }
     });
+    
+    let websocket_id_clone2 = websocket_id.clone();
 
     // Load saved connections
     Effect::new(move |_| {
         // Use the existing load_saved_connections function
         let saved_connections = connection_utils::load_saved_connections();
-        let websocket_clone = websocket.get();
+
+        let ws_id = websocket_id_clone2.clone();
+        let is_initialized = websocket_initialized.get();
         
         if !saved_connections.is_empty() {
             console_log("Loading saved connections from local storage");
@@ -201,12 +227,13 @@ pub fn FriendsConnect() -> impl IntoView {
                         if !conns.iter().any(|c| c.id == connection.id) {
                             conns.push(connection.clone());
                             
-                            // Try to subscribe to this connection via WebSocket
-                            if let Some(ws) = &websocket_clone {
-                                // Skip if connection is expired
-                                if connection.status != ConnectionStatus::Expired {
-                                    let _ = join_connection_via_ws(ws, &connection.id);
-                                    console_log(&format!("Auto-subscribed to saved connection: {}", connection.id));
+                            if is_initialized {
+                                if let Some(ws) = get_web_socket(&ws_id) {
+                                    // Skip if connection is expired
+                                    if connection.status != ConnectionStatus::Expired {
+                                        let _ = join_connection_via_ws(&ws, &connection.id);
+                                        console_log(&format!("Auto-subscribed to saved connection: {}", connection.id));
+                                    }
                                 }
                             }
                         }
@@ -221,6 +248,8 @@ pub fn FriendsConnect() -> impl IntoView {
         console_log(&format!("Notification received: {}", message));
         add_notification(message);
     });
+
+    let websocket_id_clone3 = websocket_id.clone();
 
     // Create new connection function
     let create_connection = move || {
@@ -247,7 +276,8 @@ pub fn FriendsConnect() -> impl IntoView {
         set_api_error.set(String::new());
         
         // Get the WebSocket to use after creation
-        let ws_clone = websocket.get();
+        let ws_id = websocket_id_clone3;
+        let is_initialized = websocket_initialized.get();
         
         spawn_local(async move {
             match connection_utils::create_connection(&player_id).await {
@@ -256,10 +286,12 @@ pub fn FriendsConnect() -> impl IntoView {
                         connection.id, connection.link_id));
                     
                     // Subscribe to the new connection via WebSocket
-                    if let Some(ws) = ws_clone {
-                        match join_connection_via_ws(&ws, &connection.id) {
-                            Ok(_) => console_log(&format!("Subscribed to new connection {} via WebSocket", connection.id)),
-                            Err(e) => console_log(&format!("Failed to subscribe to connection: {:?}", e))
+                    if is_initialized {
+                        if let Some(ws) = get_web_socket(&ws_id) {
+                            match join_connection_via_ws(&ws, &connection.id) {
+                                Ok(_) => console_log(&format!("Subscribed to new connection {} via WebSocket", connection.id)),
+                                Err(e) => console_log(&format!("Failed to subscribe to connection: {:?}", e))
+                            }
                         }
                     }
                     
@@ -308,6 +340,8 @@ pub fn FriendsConnect() -> impl IntoView {
         });
     };
 
+    let websocket_id_clone4 = websocket_id.clone();
+
     // Join existing connection function
     let join_connection = move |link_id: String| {
         let name = connection_name.get();
@@ -333,7 +367,8 @@ pub fn FriendsConnect() -> impl IntoView {
         set_api_error.set(String::new());
         
         // Get WebSocket to use after joining
-        let ws_clone = websocket.get();
+        let ws_id = websocket_id_clone4;
+        let is_initialized = websocket_initialized.get();
         
         spawn_local(async move {
             match connection_utils::join_connection(&link_id, &player_id).await {
@@ -342,10 +377,12 @@ pub fn FriendsConnect() -> impl IntoView {
                         connection.id, connection.link_id));
                     
                     // Subscribe to this connection via WebSocket
-                    if let Some(ws) = ws_clone {
-                        match join_connection_via_ws(&ws, &connection.id) {
-                            Ok(_) => console_log(&format!("Subscribed to joined connection {} via WebSocket", connection.id)),
-                            Err(e) => console_log(&format!("Failed to subscribe to joined connection via WebSocket: {:?}", e))
+                    if is_initialized {
+                        if let Some(ws) = get_web_socket(&ws_id) {
+                            match join_connection_via_ws(&ws, &connection.id) {
+                                Ok(_) => console_log(&format!("Subscribed to joined connection {} via WebSocket", connection.id)),
+                                Err(e) => console_log(&format!("Failed to subscribe to joined connection via WebSocket: {:?}", e))
+                            }
                         }
                     }
                     
@@ -422,7 +459,8 @@ pub fn FriendsConnect() -> impl IntoView {
                         // Create a new connection instead
                         let player_id_clone = player_id.clone();
                         let name_clone2 = name_clone.clone();
-                        let ws_clone2 = ws_clone.clone();
+                        let ws_id2 = ws_id.clone();
+                        let is_initialized2 = is_initialized;
                         
                         spawn_local(async move {
                             match connection_utils::create_connection(&player_id_clone).await {
@@ -430,10 +468,12 @@ pub fn FriendsConnect() -> impl IntoView {
                                     console_log(&format!("Auto-created new connection with ID: {}", connection.id));
                                     
                                     // Subscribe to this new connection
-                                    if let Some(ws) = ws_clone2 {
-                                        match join_connection_via_ws(&ws, &connection.id) {
-                                            Ok(_) => console_log(&format!("Subscribed to auto-created connection {} via WebSocket", connection.id)),
-                                            Err(e) => console_log(&format!("Failed to subscribe to auto-created connection: {:?}", e))
+                                    if is_initialized2 {
+                                        if let Some(ws) = get_web_socket(&ws_id2) {
+                                            match join_connection_via_ws(&ws, &connection.id) {
+                                                Ok(_) => console_log(&format!("Subscribed to auto-created connection {} via WebSocket", connection.id)),
+                                                Err(e) => console_log(&format!("Failed to subscribe to auto-created connection: {:?}", e))
+                                            }
                                         }
                                     }
                                     
@@ -475,143 +515,309 @@ pub fn FriendsConnect() -> impl IntoView {
             }
         });
     };
+// Fix the View macro with all Fn trait issues resolved
+view! {
+    <div id="friends-connect-container" class="max-w-md mx-auto p-4 bg-gray-900 text-gray-100">
+        <h2 class="text-xl font-bold mb-4 text-gray-100">"Connect with Friends"</h2>
+        
+        // API error message
+        <Show
+            when=move || !api_error.get().is_empty()
+            fallback=|| view! { <></> }
+        >
+            <div class="bg-red-900 text-red-100 p-4 rounded mb-4">
+                {move || api_error.get()}
+            </div>
+        </Show>
+        
+        // New Connection button
+        <button
+            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100 mb-4"
+            on:click=move |_| {
+                set_show_name_error.update(|v| *v = false);
+                set_show_connection.update(|v| *v = true);
+            }
+        >
+            "New Connection"
+        </button>
 
-    // View remains mostly unchanged
-    view! {
-        <div id="friends-connect-container" class="max-w-md mx-auto p-4 bg-gray-900 text-gray-100">
-            <h2 class="text-xl font-bold mb-4 text-gray-100">"Connect with Friends"</h2>
-            
-            {move || {
-                if let Some(err) = api_error.get().as_str().is_empty().not().then(|| api_error.get()) {
-                    view! {
-                        <div class="bg-red-900 text-red-100 p-4 rounded mb-4">
-                            {err}
-                        </div>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }
-            }}
-            
-            <button
-                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100 mb-4"
-                on:click=move |_| {
-                    set_show_name_error.set(false); 
-                    set_show_connection.set(true);
+        // Display connections list
+        <div class="mt-4">
+            <Show
+                when=move || !connections.get().is_empty()
+                fallback=|| view! {
+                    <div class="text-gray-400 text-sm mt-2">
+                        "No connections yet. Click 'New Connection' to create one."
+                    </div>
                 }
             >
-                "New Connection"
-            </button>
+                <div class="border border-gray-700 rounded overflow-hidden">
+                    <For
+                        each=move || connections.get()
+                        key=|conn| conn.id.clone()
+                        children=move |connection: Connection| {
+                            let conn_id = connection.id.clone();
+                            let name = get_connection_name(&conn_id).unwrap_or_else(|| "Unnamed Connection".to_string());
+                            
+                            let set_connections_clone = set_connections.clone();
+                            
+                            view! {
+                                <ConnectionItem 
+                                    connection=connection.clone() 
+                                    name=name
+                                    on_delete=Callback::new(move |deleted_id: String| {
+                                        set_connections_clone.update(|conns| {
+                                            conns.retain(|c| c.id != deleted_id);
+                                        });
+                                    })
+                                />
+                            }
+                        }
+                    />
+                </div>
+            </Show>
+        </div>
 
-            // Display connections list
-            <div class="mt-4">
-                {move || {
-                    let connections_list = connections.get();
-                    if connections_list.is_empty() {
-                        view! {
-                            <div class="text-gray-400 text-sm mt-2">
-                                "No connections yet. Click 'New Connection' to create one."
-                            </div>
-                        }.into_any()
+        // Connection modal
+        <Show
+            when=move || show_connection.get()
+            fallback=|| view! { <></> }
+        >
+            <ConnectionModal
+                connection_name=connection_name.clone()
+                show_name_error=show_name_error.clone()
+                on_name_change=Callback::new(move |new_name: String| {
+                    set_show_name_error.update(|v| *v = false);
+                    set_connection_name.update(|v| *v = new_name);
+                })
+                on_cancel=Callback::new(move |_| {
+                    set_show_name_error.update(|v| *v = false);
+                    set_show_connection.update(|v| *v = false);
+                })
+                on_submit=Callback::new(move |existing_connection: Option<Connection>| {
+                    let name_val = connection_name.get();
+                    if name_val.trim().is_empty() {
+                        set_show_name_error.update(|v| *v = true);
                     } else {
-                        view! {
-                            <div class="border border-gray-700 rounded overflow-hidden">
-                                <For
-                                    each=move || connections.get()
-                                    key=|conn| conn.id.clone()
-                                    let:connection
-                                >
-                                    {move || {
-                                        let conn_id = connection.id.clone();
-                                        let name = get_connection_name(&conn_id).unwrap_or_else(|| "Unnamed Connection".to_string());
-                                        view! {
-                                            <ConnectionItem 
-                                                connection=connection.clone() 
-                                                name=name 
-                                                on_delete=Callback::new(move |deleted_id: String| {
-                                                    // Remove the deleted connection from the connections list
-                                                    set_connections.update(|conns| {
-                                                        conns.retain(|c| c.id != deleted_id);
-                                                    });
-                                                })
-                                            />
-                                        }
-                                    }}
-                                </For>
-                            </div>
-                        }.into_any()
-                    }
-                }}
-            </div>
-
-            // Connection modal
-            {move || show_connection.get().then(|| view! {
-                <ConnectionModal
-                    connection_name=connection_name
-                    show_name_error=show_name_error
-                    on_name_change=Callback::new(move |new_name| {
-                        set_show_name_error.set(false);
-                        set_connection_name.set(new_name);
-                    })
-                    on_cancel=Callback::new(move |_| {
-                        set_show_name_error.set(false);
-                        set_show_connection.set(false);
-                    })
-                    on_submit=Callback::new(move |existing_connection: Option<Connection>| {
-                        if connection_name.get().trim().is_empty() {
-                            set_show_name_error.set(true);
-                        } else {
-                            // Check if we have a link ID in the URL
-                            let url_link_id = connection_utils::get_link_id_from_url();
-                            if url_link_id.is_some() && api_error.get().is_empty() {
-                                // Join existing connection
-                                join_connection(url_link_id.unwrap());
-                            } else if let Some(connection) = existing_connection {
-                                // Use the already created connection
-                                let name_clone = connection_name.get();
-                                console_log(&format!("Using pre-created connection: {}", connection.id));
-                                
-                                // Save friendly name for this connection
+                        // Check if we have a link ID in the URL
+                        let url_link_id = connection_utils::get_link_id_from_url();
+                        if url_link_id.is_some() && api_error.get().is_empty() {
+                            // Join existing connection using a local definition
+                            let link_id = url_link_id.unwrap();
+                            let player_id = get_stored_player_id().unwrap_or_else(|| {
+                                let new_id = uuid::Uuid::new_v4().to_string();
                                 if let Some(window) = web_sys::window() {
                                     if let Ok(Some(storage)) = window.local_storage() {
-                                        let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone);
+                                        let _ = storage.set_item("player-id", &new_id);
                                     }
                                 }
-                                
-                                // Subscribe to the connection via WebSocket
-                                if let Some(ws) = websocket.get() {
-                                    match join_connection_via_ws(&ws, &connection.id) {
-                                        Ok(_) => console_log(&format!("Subscribed to pre-created connection {} via WebSocket", connection.id)),
+                                new_id
+                            });
+                    
+                            let name_clone = name_val.clone();
+                            console_log(&format!("Joining connection with link ID: {}", link_id));
+                            
+                            // Reset error state
+                            set_api_error.update(|v| *v = String::new());
+                            
+                            // Get WebSocket to use after joining
+                            let ws_id = format!("ws_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+                            let is_initialized = websocket_initialized.get();
+                            
+                            spawn_local(async move {
+                                match connection_utils::join_connection(&link_id, &player_id).await {
+                                    Ok(mut connection) => {
+                                        console_log(&format!("Connection joined with ID: {} and link_id: {}", 
+                                            connection.id, connection.link_id));
+                                        
+                                        // Subscribe to this connection via WebSocket
+                                        if is_initialized {
+                                            if let Some(ws) = get_web_socket(&ws_id) {
+                                                match join_connection_via_ws(&ws, &connection.id) {
+                                                    Ok(_) => console_log(&format!("Subscribed to joined connection {} via WebSocket", connection.id)),
+                                                    Err(e) => console_log(&format!("Failed to subscribe to joined connection via WebSocket: {:?}", e))
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Check if we already have multiple players
+                                        if connection.players.len() >= 2 {
+                                            console_log("Two players are connected, setting status to Active");
+                                            connection.status = ConnectionStatus::Active;
+                                        }
+                                        
+                                        // Save friendly name for this connection
+                                        if let Some(window) = web_sys::window() {
+                                            if let Ok(Some(storage)) = window.local_storage() {
+                                                let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone);
+                                            }
+                                        }
+                                        
+                                        // Save the connection for later
+                                        let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
+                                        
+                                        // Update current connection
+                                        set_current_connection.update(|curr| *curr = Some(connection.clone()));
+                                        
+                                        // Add to connections list or update existing
+                                        set_connections.update(|conns| {
+                                            // Check if we already have this connection
+                                            let existing_index = conns.iter().position(|c| c.id == connection.id);
+                                            if let Some(index) = existing_index {
+                                                // Update existing connection
+                                                conns[index] = connection;
+                                            } else {
+                                                // Add new connection
+                                                conns.push(connection);
+                                            }
+                                        });
+                                        
+                                        // Close the modal
+                                        set_show_connection.update(|v| *v = false);
+                                        set_connection_name.update(|v| *v = String::new());
+                                    },
+                                    Err(e) => {
+                                        // Handle error
+                                        let error_msg = e.as_string().unwrap_or_else(|| format!("{:?}", e));
+                                        console_log(&format!("Error joining connection: {}", error_msg));
+                                        
+                                        // Set error message
+                                        set_api_error.update(|v| *v = format!("Error joining connection: {}", error_msg));
+                                    }
+                                }
+                            });
+                        } else if let Some(connection) = existing_connection {
+                            // Use the already created connection
+                            console_log(&format!("Using pre-created connection: {}", connection.id));
+                            
+                            // Save friendly name for this connection
+                            if let Some(window) = web_sys::window() {
+                                if let Ok(Some(storage)) = window.local_storage() {
+                                    let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_val);
+                                }
+                            }
+                            
+                            // Use a newly generated ID for WebSocket to avoid moved value
+                            let ws_id = format!("ws_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+                            let is_ws_initialized = websocket_initialized.get();
+                            
+                            // Subscribe to the connection via WebSocket
+                            if is_ws_initialized {
+                                if let Some(ws) = get_web_socket(&ws_id) {
+                                    let conn_id = connection.id.clone();
+                                    match join_connection_via_ws(&ws, &conn_id) {
+                                        Ok(_) => console_log(&format!("Subscribed to pre-created connection {} via WebSocket", conn_id)),
                                         Err(e) => console_log(&format!("Failed to subscribe to pre-created connection: {:?}", e))
                                     }
                                 }
-                                
-                                // Save the connection for later
-                                let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
-                                
-                                // Update current connection
-                                set_current_connection.set(Some(connection.clone()));
-                                
-                                // Add to connections list
-                                set_connections.update(|conns| {
-                                    conns.push(connection);
-                                });
-                                
-                                // Close the modal
-                                set_show_connection.set(false);
-                                set_connection_name.set(String::new());
-                            } else {
-                                // Fallback to creating a new connection
-                                create_connection();
                             }
+                            
+                            // Save the connection for later
+                            let connection_to_save = connection.clone();
+                            let _ = connection_utils::save_connection_to_local_storage(&connection_to_save, &name_val);
+                            
+                            // Update current connection
+                            set_current_connection.set(Some(connection.clone()));
+                            
+                            // Add to connections list
+                            let connection_to_add = connection.clone();
+                            set_connections.update(|conns| {
+                                conns.push(connection_to_add);
+                            });
+                            
+                            // Close the modal
+                            set_show_connection.update(|v| *v = false);
+                            set_connection_name.update(|v| *v = String::new());
+                        } else {
+                            // Create a connection directly in the callback
+                            let name_clone = name_val.clone();
+                            
+                            let player_id = get_stored_player_id().unwrap_or_else(|| {
+                                let new_id = uuid::Uuid::new_v4().to_string();
+                                if let Some(window) = web_sys::window() {
+                                    if let Ok(Some(storage)) = window.local_storage() {
+                                        let _ = storage.set_item("player-id", &new_id);
+                                    }
+                                }
+                                new_id
+                            });
+                            
+                            console_log(&format!("Creating connection with name: {}", name_val));
+                            
+                            // Reset error state
+                            set_api_error.update(|v| *v = String::new());
+                            
+                            // Use a newly generated ID for WebSocket to avoid moved value
+                            let ws_id = format!("ws_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+                            let is_initialized = websocket_initialized.get();
+                            
+                            spawn_local(async move {
+                                match connection_utils::create_connection(&player_id).await {
+                                    Ok(mut connection) => {
+                                        console_log(&format!("Connection created with ID: {} and link_id: {}", 
+                                            connection.id, connection.link_id));
+                                        
+                                        // Subscribe to the new connection via WebSocket
+                                        if is_initialized {
+                                            if let Some(ws) = get_web_socket(&ws_id) {
+                                                match join_connection_via_ws(&ws, &connection.id) {
+                                                    Ok(_) => console_log(&format!("Subscribed to new connection {} via WebSocket", connection.id)),
+                                                    Err(e) => console_log(&format!("Failed to subscribe to connection: {:?}", e))
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Check if we already have multiple players
+                                        if connection.players.len() >= 2 {
+                                            console_log("Two players are connected, setting status to Active");
+                                            connection.status = ConnectionStatus::Active;
+                                        }
+                                        
+                                        // Save friendly name for this connection
+                                        if let Some(window) = web_sys::window() {
+                                            if let Ok(Some(storage)) = window.local_storage() {
+                                                let _ = storage.set_item(&format!("conn-name-{}", connection.id), &name_clone);
+                                            }
+                                        }
+                                        
+                                        // Save the connection for later
+                                        let _ = connection_utils::save_connection_to_local_storage(&connection, &name_clone);
+                                        
+                                        // Update current connection
+                                        set_current_connection.update(|curr| *curr = Some(connection.clone()));
+                                        
+                                        // Add to connections list or update existing
+                                        set_connections.update(|conns| {
+                                            // Check if we already have this connection
+                                            let existing_index = conns.iter().position(|c| c.id == connection.id);
+                                            if let Some(index) = existing_index {
+                                                // Update existing connection
+                                                conns[index] = connection;
+                                            } else {
+                                                // Add new connection
+                                                conns.push(connection);
+                                            }
+                                        });
+                                        
+                                        // Close the modal
+                                        set_show_connection.update(|v| *v = false);
+                                        set_connection_name.update(|v| *v = String::new());
+                                    },
+                                    Err(e) => {
+                                        let error_msg = format!("Error creating connection: {:?}", e);
+                                        console_log(&error_msg);
+                                        set_api_error.update(|v| *v = error_msg);
+                                    }
+                                }
+                            });
                         }
-                    })
-                />
-            })}
-            
-            <NotificationList />
-        </div>
-    }
+                    }
+                })
+            />
+        </Show>
+        <NotificationList />
+    </div>
+}
 }
 
 fn get_connection_name(connection_id: &str) -> Option<String> {

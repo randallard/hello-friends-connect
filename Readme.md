@@ -12,7 +12,7 @@ Configured API BASE
 build container or trunk serve with 
 
 # For local development with environment variable
-API_BASE=http://localhost:8000 trunk serve
+API_BASE=http://localhost:8081 trunk serve
 
 # For Docker builds with a custom API endpoint
 docker build --build-arg API_BASE=http://new-api-server.com/friends -t my-app:latest .

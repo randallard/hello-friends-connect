@@ -88,13 +88,17 @@ pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
     // Parse the response as JSON
     let json = JsFuture::from(resp.json()?).await?;
     
-    // Check if response has a connection field or is directly a connection
+    // Check if response has a connection field
     if let Ok(response_obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(json.clone()) {
-        if let Some(connection_value) = response_obj.get("connection") {
-            // New format with connection field and websocket_url
-            let connection_data: Connection = serde_wasm_bindgen::from_value(
-                serde_wasm_bindgen::to_value(connection_value)?
-            )?;
+        if let Some(connection_obj) = response_obj.get("connection") {
+            // New format with nested connection object
+            let connection_str = serde_json::to_string(connection_obj)
+                .map_err(|e| JsValue::from_str(&format!("Error serializing connection: {:?}", e)))?;
+            
+            let connection_js = js_sys::JSON::parse(&connection_str)
+                .map_err(|e| JsValue::from_str(&format!("Error parsing connection JSON: {:?}", e)))?;
+            
+            let connection_data: Connection = serde_wasm_bindgen::from_value(connection_js)?;
             
             // Optionally log the WebSocket URL
             if let Some(ws_url) = response_obj.get("websocket_url") {
@@ -114,7 +118,6 @@ pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
     Ok(connection_data)
 }
 
-// Similarly update join_connection function to handle the WebSocket URL
 pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connection, JsValue> {
     console_log(&format!("Joining connection with link ID: {} for player: {}", link_id, player_id));
     
@@ -171,13 +174,17 @@ pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connectio
     // Parse the response as JSON
     let json = JsFuture::from(resp.json()?).await?;
     
-    // Check if response has a connection field or is directly a connection
+    // Check if response has a connection field
     if let Ok(response_obj) = serde_wasm_bindgen::from_value::<serde_json::Value>(json.clone()) {
-        if let Some(connection_value) = response_obj.get("connection") {
-            // New format with connection field and websocket_url
-            let connection_data: Connection = serde_wasm_bindgen::from_value(
-                serde_wasm_bindgen::to_value(connection_value)?
-            )?;
+        if let Some(connection_obj) = response_obj.get("connection") {
+            // New format with nested connection object
+            let connection_str = serde_json::to_string(connection_obj)
+                .map_err(|e| JsValue::from_str(&format!("Error serializing connection: {:?}", e)))?;
+            
+            let connection_js = js_sys::JSON::parse(&connection_str)
+                .map_err(|e| JsValue::from_str(&format!("Error parsing connection JSON: {:?}", e)))?;
+            
+            let connection_data: Connection = serde_wasm_bindgen::from_value(connection_js)?;
             
             // Optionally log the WebSocket URL
             if let Some(ws_url) = response_obj.get("websocket_url") {
@@ -196,7 +203,6 @@ pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connectio
     console_log(&format!("Joined connection with ID: {}", connection_data.id));
     Ok(connection_data)
 }
-
 
 // Helper function to save connection name in localStorage
 fn save_connection_name(connection_id: &str, name: &str) {
