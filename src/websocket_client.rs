@@ -55,7 +55,9 @@ pub fn setup_websocket(
     on_connection_active: Callback<String>,
     on_notification: Callback<String>,
     connection_status: RwSignal<bool>,
+    websocket_id: String,
 ) -> Result<WebSocket, JsValue> {
+
     // Create WebSocket connection
     let api_url = get_config().api_base_url.clone();
     
@@ -260,13 +262,28 @@ pub fn setup_websocket(
     ws.set_onopen(Some(open_callback.as_ref().unchecked_ref()));
     open_callback.forget();
     
+    let player_id_clone = player_id.clone();
+    let websocket_id_clone = websocket_id.clone();
+    let on_connection_active_clone = on_connection_active.clone();
+    let on_notification_clone = on_notification.clone();
+    let connection_status_clone = connection_status;
+
     // Setup error handler
     let error_callback = Closure::wrap(Box::new(move |e: ErrorEvent| {
         console_log(&format!("WebSocket error: {:?}", e));
         // Ensure connection status is set to false on error
         connection_status.set(false);
+        
+        // Attempt to reconnect
+        reconnect_websocket(
+            player_id_clone.clone(), 
+            websocket_id_clone.clone(),
+            on_connection_active_clone.clone(), 
+            on_notification_clone.clone(),
+            connection_status_clone
+        );
     }) as Box<dyn FnMut(ErrorEvent)>);
-    
+
     ws.set_onerror(Some(error_callback.as_ref().unchecked_ref()));
     error_callback.forget();
     
@@ -334,4 +351,59 @@ pub fn join_connection_via_ws(ws: &WebSocket, connection_id: &str) -> Result<(),
     });
     
     Ok(())
+}
+// Add to websocket_client.rs
+pub fn store_web_socket(id: &str, ws: WebSocket) {
+    if let Some(window) = web_sys::window() {
+        let _ = js_sys::Reflect::set(
+            &window,
+            &JsValue::from_str(id),
+            &ws,
+        );
+    }
+}
+
+pub fn get_web_socket(id: &str) -> Option<WebSocket> {
+    web_sys::window().and_then(|window| {
+        js_sys::Reflect::get(
+            &window,
+            &JsValue::from_str(id),
+        ).ok()
+        .and_then(|val| val.dyn_into::<WebSocket>().ok())
+    })
+}
+// Add to websocket_client.rs - could be added at the bottom
+pub fn reconnect_websocket(
+    player_id: String,
+    websocket_id: String,
+    on_connection_active: Callback<String>,
+    on_notification: Callback<String>,
+    connection_status: RwSignal<bool>
+) {
+
+    let websocket_id_clone = websocket_id.clone();
+
+    let console_log = move |msg: &str| {
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(msg));
+    };
+    
+    spawn_local(async move {
+        console_log("Attempting to reconnect WebSocket...");
+        
+        // Wait a moment before reconnecting
+        gloo_timers::future::TimeoutFuture::new(2000).await;
+        
+        match setup_websocket(player_id, on_connection_active, on_notification, connection_status,websocket_id) {
+            Ok(ws) => {
+                console_log("WebSocket reconnection successful");
+                store_web_socket(&websocket_id_clone, ws);
+            },
+            Err(e) => {
+                console_log(&format!("WebSocket reconnection failed: {:?}", e));
+                // Schedule another reconnection attempt
+                gloo_timers::future::TimeoutFuture::new(5000).await;
+                // We'd implement the reconnection retry logic here
+            }
+        }
+    });
 }

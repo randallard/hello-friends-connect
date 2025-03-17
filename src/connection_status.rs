@@ -10,13 +10,19 @@ pub fn ConnectionStatus(
     let (connecting, set_connecting) = create_signal(false);
     
     // Create an effect to handle initial connection attempts
-    create_effect(move |_| {
+    Effect::new(move |_| {
         if !connected.get() {
-            let timer_id = set_timeout(move || {
-                // Clear connecting state after 5 seconds if still not connected
-                set_connecting.set(false);
+            set_connecting.set(true);
+            let _timer_id = set_timeout(move || {
+                // Only clear connecting state if still not connected
+                if !connected.get() {
+                    set_connecting.set(false);
+                }
             }, 
             std::time::Duration::from_millis(5000));
+        } else {
+            // If connected, ensure connecting state is cleared
+            set_connecting.set(false);
         }
     });
     
