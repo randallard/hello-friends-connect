@@ -84,7 +84,7 @@ pub fn setup_websocket(
             // Try to parse the message as JSON
             if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&message) {
                 match ws_msg.event_type.as_str() {
-                    "connection_status_updated" | "status_update" | "connection_updated" => {
+                    "connection_status_updated" | "status_update" | "connection_updated" | "connection_status_update"=> {
                         if let Some(status) = ws_msg.payload.get("status").and_then(|s| s.as_str()) {
                             if status == "Active" {
                                 if let Some(conn_id) = ws_msg.payload.get("connection_id").and_then(|id| id.as_str()) {

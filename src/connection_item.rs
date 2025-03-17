@@ -12,17 +12,30 @@ pub fn ConnectionItem(
     #[prop(into)] name: String,
     #[prop(optional)] on_delete: Option<Callback<String>>,
 ) -> impl IntoView {
+    let connection_clone_for_status = connection.clone();
+
     // Create local clone of connection values to avoid ownership issues
     let connection_id = create_rw_signal(connection.id.clone());
     let connection_name = create_rw_signal(name);
     let show_view_modal = create_rw_signal(false);
     let show_expired_modal = create_rw_signal(false);
-    let connection_signal = create_rw_signal(connection);
-    let status = Signal::derive(move || connection_signal.get().status);
+    let connection_signal = create_rw_signal(connection);    
+    let status = create_rw_signal(connection_clone_for_status.status);
 
     let console_log = move |msg: &str| {
         console::log_1(&wasm_bindgen::JsValue::from_str(msg));
     };
+
+    // // Debug log the initial connection state
+    // console_log(&format!("ConnectionItem initialized with connection ID: {} and status: {:?}", 
+    //                      connection.id, connection.status));
+
+    Effect::new(move |_| {
+        let conn = connection_signal.get();
+        let new_status = conn.status.clone();
+        status.set(new_status.clone());
+        console_log(&format!("Effect: Connection status updated for {}: {:?}", conn.id, new_status));
+    });                         
 
     // Create a signal to track if this component is still valid
     // This helps prevent errors when trying to access deleted connections
@@ -133,6 +146,9 @@ pub fn ConnectionItem(
                             >
                                 {move || {
                                     let conn_id = connection_id.get();
+                                    let current_status = connection_signal.get().status.clone();
+                                    status.set(current_status.clone()); // Update local status RW signal
+                                    
                                     match status.get() {
                                         ConnectionStatus::Pending => {
                                             console_log(&format!("Rendering Pending status for connection: {}", conn_id));

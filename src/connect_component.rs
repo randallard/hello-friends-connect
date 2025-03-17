@@ -72,7 +72,6 @@ pub fn FriendsConnect() -> impl IntoView {
                     console_log(&format!("Updating connection status to Active for {}", connection_id));
                     conn.status = ConnectionStatus::Active;
                     updated = true;
-                    break;
                 }
             }
             if !updated {
@@ -89,15 +88,6 @@ pub fn FriendsConnect() -> impl IntoView {
                 }
             }
         });
-        
-        // Play a notification sound to alert the user
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Ok(audio) = web_sys::HtmlAudioElement::new_with_src("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU") {
-                    let _ = audio.play();
-                }
-            }
-        }
         
         // Add a notification about the connection becoming active
         crate::notification_component::add_notification(
@@ -220,6 +210,9 @@ pub fn FriendsConnect() -> impl IntoView {
         }
     }
 
+    
+    let websocket_id_clone2 = websocket_id.clone();
+
     // Setup a single WebSocket for the player
     Effect::new(move |_| {
         if let Some(player_id) = get_stored_player_id() {
@@ -236,15 +229,6 @@ pub fn FriendsConnect() -> impl IntoView {
             let on_connection_active_ws = Callback::new(move |connection_id: String| {
                 console_log(&format!("Connection is now active: {}", connection_id));
                 
-                // Play a notification sound
-                if let Some(window) = web_sys::window() {
-                    if let Some(document) = window.document() {
-                        if let Ok(audio) = web_sys::HtmlAudioElement::new_with_src("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU") {
-                            let _ = audio.play();
-                        }
-                    }
-                }
-                
                 // Add a notification about the connection becoming active
                 add_notification(format!("Connection is now active! Both players are connected."));
             });
@@ -257,12 +241,13 @@ pub fn FriendsConnect() -> impl IntoView {
             
             // Initialize connection status to false
             connection_status_for_effect.set(false);
+            let websocket_id_for_spawn = websocket_id_clone2.clone();
             
             // Let's handle setting up the WebSocket in a separate function
             spawn_local(async move {
                 setup_websocket_async(
                     player_id_clone, 
-                    &websocket_id, 
+                    &websocket_id_for_spawn, 
                     on_connection_active_ws, 
                     on_notification,
                     connection_status_for_effect
@@ -270,6 +255,7 @@ pub fn FriendsConnect() -> impl IntoView {
             });
         }
     });
+
     // Ensure a player ID exists
     Effect::new(move |_| {
         if get_stored_player_id().is_none() {
@@ -674,7 +660,7 @@ view! {
                 <div class="border border-gray-700 rounded overflow-hidden">
                     <For
                         each=move || connections.get()
-                        key=|conn| conn.id.clone()
+                        key=|conn| format!("{}-{:?}", conn.id.clone(), conn.status)
                         children=move |connection: Connection| {
                             let conn_id = connection.id.clone();
                             let name = get_connection_name(&conn_id).unwrap_or_else(|| "Unnamed Connection".to_string());
