@@ -25,6 +25,8 @@ features = [
     "EventTarget",
     "HtmlElement",
     "HtmlInputElement",
+    "MessageEvent",
+    "MessageEventInit",
     "Notification",
     "NotificationOptions",
     "Storage",

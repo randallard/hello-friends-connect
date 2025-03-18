@@ -638,6 +638,7 @@ view! {
         
         // New Connection button
         <button
+            data-test-id="new-connection-button"        
             class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100 mb-4"
             on:click=move |_| {
                 set_show_name_error.update(|v| *v = false);
@@ -978,7 +979,7 @@ mod tests {
         
         // Open modal
         let new_conn_button = document()
-            .query_selector("button")
+        .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
         new_conn_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
@@ -988,7 +989,7 @@ mod tests {
         
         // Find and click OK button with empty input
         let ok_button = document()
-            .query_selector(".flex.justify-end.gap-4 button:last-child")
+        .query_selector("[data-test-id='connection-submit-button']")
             .unwrap()
             .expect("Should find OK button");
             
@@ -1104,12 +1105,13 @@ mod tests {
     async fn test_new_connection_button_shows_modal() {
         mount_to_body(|| view! { <FriendsConnect /> });
         
-        // Find and click the New Connection button
+        // Find and click the New Connection button using a data-test-id attribute
         let button = document()
-            .query_selector("button")
+            .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
             
+        // Check if this is indeed the New Connection button
         assert_eq!(button.text_content().unwrap(), "New Connection");
         
         // Initially modal should not be present
@@ -1122,7 +1124,7 @@ mod tests {
         
         // Now modal should be present
         let modal = document()
-            .query_selector(".fixed")
+            .query_selector("[data-test-id='connection-modal']")
             .unwrap()
             .expect("Modal should appear after click");
             

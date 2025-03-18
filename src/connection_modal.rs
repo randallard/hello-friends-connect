@@ -139,7 +139,10 @@ pub fn ConnectionModal(
     };
 
     view! {
-        <div class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div
+            data-test-id="connection-modal" 
+            class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50"
+        >
             <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4 text-gray-100 border border-gray-700">
                 <h3 class="text-xl font-bold mb-4 text-gray-100">
                     {move || {
@@ -195,7 +198,8 @@ pub fn ConnectionModal(
                             }}
                         </div>
                         {move || show_name_error.get().then(|| view! {
-                            <div class="mt-2 text-red-400 text-sm" data-test-id="connection-name-error">
+                            <div class="mt-2 text-red-400 text-sm" 
+                                data-test-id="connection-name-error">
                                 "Please enter a name for your connection."
                             </div>
                         })}
@@ -258,10 +262,11 @@ pub fn ConnectionModal(
                             } else {
                                 view! {
                                     <button
+                                        data-test-id="connection-submit-button"
                                         class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-gray-100"
                                         on:click=move |_| on_submit.run(created_connection.get())
                                     >
-                                        {if get_link_id_from_url().is_some() { "Join" } else { "Create" }}
+                                        "OK"
                                     </button>
                                 }.into_any()
                             }

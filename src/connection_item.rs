@@ -249,3 +249,74 @@ pub fn ConnectionItem(
         </div>
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    async fn test_connection_status_button_changes() {
+        // First test with a Pending connection
+        let pending_connection = Connection {
+            id: "test-conn-123".to_string(),
+            link_id: "test-link-456".to_string(),
+            players: vec!["player1".to_string()],
+            created_at: js_sys::Date::now() as i64 / 1000,
+            status: ConnectionStatus::Pending,
+            expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
+        };
+        
+        // Mount with Pending connection
+        mount_to_body( move || view! {
+            <ConnectionItem
+                connection=pending_connection.clone()
+                name="Test Connection"
+                on_delete=Callback::new(|_| {})
+            />
+        });
+        
+        // Find status element using data-test-id
+        let status = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap()
+            .expect("Should find connection status element");
+        
+        assert_eq!(status.text_content().unwrap().trim(), "Pending");
+        
+        // Now test with an Active connection
+        let active_connection = Connection {
+            id: "test-conn-123".to_string(),
+            link_id: "test-link-456".to_string(),
+            players: vec!["player1".to_string(), "player2".to_string()],
+            created_at: js_sys::Date::now() as i64 / 1000,
+            status: ConnectionStatus::Active,
+            expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
+        };
+        
+        // Clear the body and mount with Active connection
+        let body = document().body().unwrap();
+        body.set_inner_html("");
+        
+        mount_to_body( move || view! {
+            <ConnectionItem
+                connection=active_connection.clone()
+                name="Test Connection"
+                on_delete=Callback::new(|_| {})
+            />
+        });
+        
+        // Wait for rendering
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Find status element using data-test-id
+        let active_status = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap()
+            .expect("Should find connection status element");
+        
+        assert_eq!(active_status.text_content().unwrap().trim(), "Active");
+    }
+
+}
