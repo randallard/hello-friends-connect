@@ -137,6 +137,7 @@ pub fn ConnectionItem(
                         <div>
                             - / -
                             <button 
+                                data-test-id="connection-status"
                                 class={move || match status.get() {
                                     ConnectionStatus::Pending => "px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-gray-100",
                                     ConnectionStatus::Active => "px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm text-gray-100", 
@@ -185,12 +186,14 @@ pub fn ConnectionItem(
                                 
                                 <div class="flex justify-end gap-3">
                                     <button
+                                        data-test-id="cancel-connection-button"
                                         class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
                                         on:click=move |_| show_expired_modal.set(false)
                                     >
                                         "Cancel"
                                     </button>
                                     <button
+                                        data-test-id="delete-connection-button"
                                         class="px-4 py-2 border border-red-500 text-red-500 hover:bg-red-900 rounded"
                                         on:click=handle_delete.clone()
                                     >
