@@ -252,16 +252,90 @@ pub fn ConnectionItem(
         </div>
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasm_bindgen::JsValue;
     use wasm_bindgen_test::*;
+    use js_sys::{Function, Promise};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
+    // Setup mock for WebSocket operations
+    fn setup_websocket_mock() {
+        let window = web_sys::window().unwrap();
+        
+        // Create mock WebSocket constructor
+        let mock_websocket_constructor = Function::new_with_args(
+            "url",
+            r#"
+            console.log('Mock WebSocket created with URL:', url);
+            
+            // Create a mock WebSocket object
+            const mockWs = {
+                url: url,
+                readyState: 1, // WebSocket.OPEN
+                send: function(data) {
+                    console.log('Mock WebSocket sent data:', data);
+                },
+                close: function() {
+                    console.log('Mock WebSocket closed');
+                    this.readyState = 3; // WebSocket.CLOSED
+                    if (this.onclose) this.onclose({});
+                }
+            };
+            
+            // Simulate connection open on next tick
+            setTimeout(() => {
+                if (mockWs.onopen) mockWs.onopen({});
+            }, 0);
+            
+            return mockWs;
+            "#
+        );
+        
+        // Store original WebSocket constructor
+        let _ = js_sys::Reflect::set(
+            &window, 
+            &JsValue::from_str("originalWebSocket"), 
+            &window.get("WebSocket").unwrap()
+        );
+        
+        // Replace with mock
+        let _ = js_sys::Reflect::set(
+            &window, 
+            &JsValue::from_str("WebSocket"), 
+            &mock_websocket_constructor
+        );
+    }
+    
+    // Restore original WebSocket after test
+    fn restore_websocket() {
+        if let Some(window) = web_sys::window() {
+            if let Ok(orig_ws) = js_sys::Reflect::get(&window, &JsValue::from_str("originalWebSocket")) {
+                if !orig_ws.is_undefined() {
+                    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("WebSocket"), &orig_ws);
+                }
+            }
+        }
+    }
+
     #[wasm_bindgen_test]
     async fn test_connection_status_button_changes() {
-        // First test with a Pending connection
+        // Setup WebSocket mock before test
+        setup_websocket_mock();
+        
+        // Create cleanup guard
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                restore_websocket();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Test with a Pending connection first
         let pending_connection = Connection {
             id: "test-conn-123".to_string(),
             link_id: "test-link-456".to_string(),
@@ -271,8 +345,8 @@ mod tests {
             expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
         };
         
-        // Mount with Pending connection
-        mount_to_body( move || view! {
+        // Mount the component
+        mount_to_body(move || view! {
             <ConnectionItem
                 connection=pending_connection.clone()
                 name="Test Connection"
@@ -280,15 +354,30 @@ mod tests {
             />
         });
         
-        // Find status element using data-test-id
+        // Verify Pending state
         let status = document()
             .query_selector("[data-test-id='connection-status']")
             .unwrap()
             .expect("Should find connection status element");
         
         assert_eq!(status.text_content().unwrap().trim(), "Pending");
+    }
+    
+    #[wasm_bindgen_test]
+    async fn test_active_connection_status() {
+        // Setup WebSocket mock before test
+        setup_websocket_mock();
         
-        // Now test with an Active connection
+        // Create cleanup guard
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                restore_websocket();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Create an Active connection
         let active_connection = Connection {
             id: "test-conn-123".to_string(),
             link_id: "test-link-456".to_string(),
@@ -298,11 +387,8 @@ mod tests {
             expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
         };
         
-        // Clear the body and mount with Active connection
-        let body = document().body().unwrap();
-        body.set_inner_html("");
-        
-        mount_to_body( move || view! {
+        // Mount with the Active connection
+        mount_to_body(move || view! {
             <ConnectionItem
                 connection=active_connection.clone()
                 name="Test Connection"
@@ -310,16 +396,239 @@ mod tests {
             />
         });
         
-        // Wait for rendering
+        // Wait for the DOM to update
         let _ = gloo_timers::future::TimeoutFuture::new(100).await;
         
-        // Find status element using data-test-id
-        let active_status = document()
+        // Verify Active state
+        let status = document()
             .query_selector("[data-test-id='connection-status']")
             .unwrap()
             .expect("Should find connection status element");
         
-        assert_eq!(active_status.text_content().unwrap().trim(), "Active");
+        assert_eq!(status.text_content().unwrap().trim(), "Active");
     }
+    
+    #[wasm_bindgen_test]
+    async fn test_expired_connection_status() {
+        // Setup WebSocket mock before test
+        setup_websocket_mock();
+        
+        // Create cleanup guard
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                restore_websocket();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Create an Expired connection
+        let expired_connection = Connection {
+            id: "test-conn-123".to_string(),
+            link_id: "test-link-456".to_string(),
+            players: vec!["player1".to_string()],
+            created_at: js_sys::Date::now() as i64 / 1000 - 172800, // 2 days ago
+            status: ConnectionStatus::Expired,
+            expires_at: js_sys::Date::now() as i64 / 1000 - 86400, // Expired 1 day ago
+        };
+        
+        // Mount with the Expired connection
+        mount_to_body(move || view! {
+            <ConnectionItem
+                connection=expired_connection.clone()
+                name="Test Connection"
+                on_delete=Callback::new(|_| {})
+            />
+        });
+        
+        // Wait for the DOM to update
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Verify Expired state
+        let status = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap()
+            .expect("Should find connection status element");
+        
+        assert_eq!(status.text_content().unwrap().trim(), "Expired");
+    }
+    
+    #[wasm_bindgen_test]
+    async fn test_delete_connection() {
+        // Setup WebSocket mock before test
+        setup_websocket_mock();
+        
+        // Create cleanup guard
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                restore_websocket();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Create a test connection
+        let test_connection = Connection {
+            id: "test-conn-123".to_string(),
+            link_id: "test-link-456".to_string(),
+            players: vec!["player1".to_string()],
+            created_at: js_sys::Date::now() as i64 / 1000,
+            status: ConnectionStatus::Pending,
+            expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
+        };
+        
+        // Mock localStorage with an existing saved connection
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                // Add the connection name
+                let _ = storage.set_item(&format!("conn-name-{}", test_connection.id), "Test Connection");
+                
+                // Add to saved connections
+                let saved_connections = vec![serde_json::json!({
+                    "id": test_connection.id,
+                    "link_id": test_connection.link_id,
+                    "created_at": test_connection.created_at,
+                    "expires_at": test_connection.expires_at
+                })];
+                let json = serde_json::to_string(&saved_connections).unwrap();
+                let _ = storage.set_item("saved-connections", &json);
+            }
+        }
+        
+        // Track deletion in a Cell to verify callback was executed
+        let deleted = std::cell::Cell::new(false);
+        
+        // Mount with a delete callback that sets our tracking variable
+        mount_to_body(move || {
+            let deleted_clone = deleted.clone();
+            view! {
+                <ConnectionItem
+                    connection=test_connection.clone()
+                    name="Test Connection"
+                    on_delete=Callback::new(move |_| {
+                        deleted_clone.set(true);
+                    })
+                />
+            }
+        });
+        
+        // Wait for the DOM to update
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Click the status button to open the modal
+        let status_button = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap()
+            .expect("Should find status button");
+            
+        status_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for modal to appear
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Click the delete button
+        let delete_button = document()
+            .query_selector("[data-test-id='delete-connection-button']")
+            .unwrap()
+            .expect("Should find delete button");
+            
+        delete_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for delete operation to complete
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Verify callback was executed
+        assert!(deleted.get(), "Delete callback should have been executed");
+        
+        // Verify the connection was removed from localStorage
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                assert_eq!(storage.get_item(&format!("conn-name-{}", test_connection.id)).unwrap(), None);
+                
+                // Check saved-connections no longer contains this connection
+                if let Some(saved_json) = storage.get_item("saved-connections").unwrap() {
+                    let saved_connections: Vec<serde_json::Value> = serde_json::from_str(&saved_json).unwrap();
+                    assert!(!saved_connections.iter().any(|conn| {
+                        conn.get("id").and_then(|id| id.as_str()) == Some(&test_connection.id)
+                    }));
+                }
+            }
+        }
+    }
+    
+    #[wasm_bindgen_test]
+    async fn test_connection_view_modal() {
+        // Setup WebSocket mock before test
+        setup_websocket_mock();
+        
+        // Create cleanup guard
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                restore_websocket();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Create a test connection
+        let test_connection = Connection {
+            id: "test-conn-456".to_string(),
+            link_id: "test-link-789".to_string(),
+            players: vec!["player1".to_string()],
+            created_at: js_sys::Date::now() as i64 / 1000,
+            status: ConnectionStatus::Pending,
+            expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
+        };
+        
+        let tc_clone = test_connection.clone();
+        
+        // Mount the component
+        mount_to_body(move || view! {
+            <ConnectionItem
+                connection=test_connection.clone()
+                name="Test Connection"
+                on_delete=Callback::new(|_| {})
+            />
+        });
+        
+        // Wait for the DOM to update
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Click the status button to open the view modal
+        let status_button = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap()
+            .expect("Should find status button");
+            
+        status_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for modal to appear
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Verify the modal shows the connection link ID
+        // The link ID should appear in the modal content
+        let modal_content = document()
+            .query_selector(".bg-gray-800")
+            .unwrap()
+            .expect("Should find modal content");
+            
+        let all_text = modal_content.text_content().unwrap();
+        assert!(all_text.contains(&tc_clone.link_id), "Modal should display the connection link ID");
+        
+        // Close the modal
+        let cancel_button = document()
+            .query_selector("[data-test-id='cancel-connection-button']")
+            .unwrap()
+            .expect("Should find cancel button");
+            
+        cancel_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for modal to disappear
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Verify modal is gone
+        let modal = document().query_selector(".fixed").unwrap();
+        assert!(modal.is_none(), "Modal should be closed after clicking cancel");
+    }    
 
 }

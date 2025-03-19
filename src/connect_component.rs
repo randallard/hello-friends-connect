@@ -945,9 +945,184 @@ pub fn get_stored_player_id() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use leptos::attr::defer;
     use wasm_bindgen_test::*;
+    use std::rc::Rc;
+    use std::cell::RefCell;
+    use js_sys::{Function, Promise};
 
     wasm_bindgen_test_configure!(run_in_browser);
+
+    // Setup mock for fetch API to intercept network requests
+    fn setup_fetch_mock() {
+        let window = web_sys::window().unwrap();
+        
+        // Create a mock fetch function
+        let mock_fetch = Function::new_with_args(
+            "url, options",
+            r#"
+            console.log('Mock fetch called with:', url);
+            
+            // For create connection endpoint
+            if (url.includes('/connections') && !url.includes('/link/') && options.method === 'POST') {
+                const mockResponse = {
+                    connection: {
+                        id: "mock-conn-123",
+                        link_id: "mock-link-456",
+                        players: ["player1"],
+                        created_at: Math.floor(Date.now() / 1000),
+                        status: "Pending",
+                        expires_at: Math.floor(Date.now() / 1000) + 86400
+                    },
+                    websocket_url: "wss://mock-server.com/ws"
+                };
+                
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(mockResponse),
+                    status: 200,
+                    statusText: "OK"
+                });
+            }
+            
+            // For join connection endpoint
+            if (url.includes('/connections/link/') && url.includes('/join') && options.method === 'POST') {
+                const mockResponse = {
+                    connection: {
+                        id: "mock-conn-456",
+                        link_id: "mock-link-789",
+                        players: ["player1", "player2"],
+                        created_at: Math.floor(Date.now() / 1000),
+                        status: "Active",
+                        expires_at: Math.floor(Date.now() / 1000) + 86400
+                    },
+                    websocket_url: "wss://mock-server.com/ws"
+                };
+                
+                // Check if we should simulate an error based on URL
+                if (url.includes('error-test')) {
+                    return Promise.resolve({
+                        ok: false,
+                        text: () => Promise.resolve(JSON.stringify({error: "Connection already has maximum players"})),
+                        status: 400,
+                        statusText: "Bad Request"
+                    });
+                }
+                
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(mockResponse),
+                    status: 200,
+                    statusText: "OK"
+                });
+            }
+            
+            // For notifications endpoint
+            if (url.includes('/notifications')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve([]),
+                    status: 200,
+                    statusText: "OK"
+                });
+            }
+            
+            // Default fallback for any other endpoints
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({}),
+                status: 200,
+                statusText: "OK"
+            });
+            "#
+        );
+        
+        // Replace the fetch function
+        js_sys::Reflect::set(&window, &JsValue::from_str("originalFetch"), &window.get("fetch").unwrap()).unwrap();
+        js_sys::Reflect::set(&window, &JsValue::from_str("fetch"), &mock_fetch).unwrap();
+    }
+    
+    // Restore original fetch after test
+    fn restore_fetch() {
+        if let Some(window) = web_sys::window() {
+            if let Ok(orig_fetch) = js_sys::Reflect::get(&window, &JsValue::from_str("originalFetch")) {
+                if !orig_fetch.is_undefined() {
+                    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("fetch"), &orig_fetch);
+                }
+            }
+        }
+    }
+    
+    // Mock WebSocket class
+    fn setup_websocket_mock() {
+        let window = web_sys::window().unwrap();
+        
+        // Create mock WebSocket constructor
+        let mock_websocket_constructor = Function::new_with_args(
+            "url",
+            r#"
+            console.log('Mock WebSocket created with URL:', url);
+            
+            // Create a mock WebSocket object
+            const mockWs = {
+                url: url,
+                readyState: 1, // WebSocket.OPEN
+                send: function(data) {
+                    console.log('Mock WebSocket sent data:', data);
+                },
+                close: function() {
+                    console.log('Mock WebSocket closed');
+                    this.readyState = 3; // WebSocket.CLOSED
+                    if (this.onclose) this.onclose({});
+                }
+            };
+            
+            // Simulate connection open on next tick
+            setTimeout(() => {
+                if (mockWs.onopen) mockWs.onopen({});
+            }, 0);
+            
+            return mockWs;
+            "#
+        );
+        
+        // Store original WebSocket constructor
+        let _ = js_sys::Reflect::set(
+            &window, 
+            &JsValue::from_str("originalWebSocket"), 
+            &window.get("WebSocket").unwrap()
+        );
+        
+        // Replace with mock
+        let _ = js_sys::Reflect::set(
+            &window, 
+            &JsValue::from_str("WebSocket"), 
+            &mock_websocket_constructor
+        );
+    }
+    
+    // Restore original WebSocket after test
+    fn restore_websocket() {
+        if let Some(window) = web_sys::window() {
+            if let Ok(orig_ws) = js_sys::Reflect::get(&window, &JsValue::from_str("originalWebSocket")) {
+                if !orig_ws.is_undefined() {
+                    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("WebSocket"), &orig_ws);
+                }
+            }
+        }
+    }
+
+    // Helper to setup all mocks for a test
+    fn setup_test_mocks() {
+        setup_fetch_mock();
+        setup_websocket_mock();
+    }
+    
+    // Helper to clean up all mocks after a test
+    fn cleanup_test_mocks() {
+        restore_fetch();
+        restore_websocket();
+    }
 
     #[wasm_bindgen_test]
     async fn test_modal_starts_in_add_mode() {
@@ -955,7 +1130,7 @@ mod tests {
         
         // Open modal
         let new_conn_button = document()
-            .query_selector("button")
+            .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
         new_conn_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
@@ -965,9 +1140,9 @@ mod tests {
         
         // Check label text indicates Add mode
         let label = document()
-            .query_selector("label")
+            .query_selector("[data-test-id='new-connection-name']")
             .unwrap()
-            .expect("Should find label");
+            .expect("Should find connection name label");
             
         assert_eq!(label.text_content().unwrap(), "Connect to:");
     }
@@ -979,7 +1154,7 @@ mod tests {
         
         // Open modal
         let new_conn_button = document()
-        .query_selector("[data-test-id='new-connection-button']")
+            .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
         new_conn_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
@@ -989,7 +1164,7 @@ mod tests {
         
         // Find and click OK button with empty input
         let ok_button = document()
-        .query_selector("[data-test-id='connection-submit-button']")
+            .query_selector("[data-test-id='connection-submit-button']")
             .unwrap()
             .expect("Should find OK button");
             
@@ -1016,7 +1191,7 @@ mod tests {
         
         // Open the modal first
         let new_conn_button = document()
-            .query_selector("button")
+        .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
         new_conn_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
@@ -1026,7 +1201,7 @@ mod tests {
         
         // Find and click the cancel button
         let cancel_button = document()
-            .query_selector("button.bg-gray-700")
+        .query_selector("[data-test-id='connection-modal-cancel-button']")
             .unwrap()
             .expect("Should find cancel button");
         
@@ -1037,9 +1212,193 @@ mod tests {
         // Wait for modal to disappear
         let _ = gloo_timers::future::TimeoutFuture::new(100).await;
         
-        // Verify modal is gone
-        let modal = document().query_selector(".fixed").unwrap();
+        // Verify modal is gone 'connection-modal'
+        let modal = document()
+        .query_selector("[data-test-id='connection-modal']")
+            .unwrap();
         assert!(modal.is_none(), "Modal should be closed after clicking cancel");
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_create_connection_success() {
+        // Set up our mocks
+        setup_test_mocks();
+        
+        // Create a guard that will clean up when the test is done
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                cleanup_test_mocks();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Mount the component
+        mount_to_body(|| view! { <FriendsConnect /> });
+        
+        // Open modal
+        let new_conn_button = document()
+            .query_selector("[data-test-id='new-connection-button']")
+            .unwrap()
+            .expect("Should find New Connection button");
+            
+        new_conn_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for modal
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Set connection name
+        let input = document()
+            .query_selector("input")
+            .unwrap()
+            .expect("Should find input field");
+            
+        let input_element: web_sys::HtmlInputElement = input.dyn_into().unwrap();
+        input_element.set_value("Test Connection");
+        input_element.dispatch_event(&web_sys::Event::new("input").unwrap()).unwrap();
+        
+        // Find and click OK button
+        let ok_button = document()
+            .query_selector("[data-test-id='connection-submit-button']")
+            .unwrap()
+            .expect("Should find OK button");
+            
+        ok_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for the connection to be created
+        let _ = gloo_timers::future::TimeoutFuture::new(500).await;        
+        
+        // Verify the connection item is added to the list (would have a status button)
+        let status_button = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap();
+            
+        assert!(status_button.is_some(), "Should add one connection to the list with a status button");
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_join_connection_success() {
+        // Set up our mocks
+        setup_test_mocks();
+        
+        // Create a guard that will clean up when the test is done
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                cleanup_test_mocks();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Add link_id to URL
+        let win = web_sys::window().unwrap();
+        let history = win.history().unwrap();
+        history.push_state_with_url(
+            &JsValue::NULL,
+            "",
+            Some("/?link=test-link-123")
+        ).unwrap();
+        
+        // Mount the component (should auto-open the modal with the link)
+        mount_to_body(|| view! { <FriendsConnect /> });
+        
+        // Wait for modal
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Set connection name
+        let input = document()
+            .query_selector("[data-test-id='connection-name-input']")
+            .unwrap()
+            .expect("Should find input field");
+            
+        let input_element: web_sys::HtmlInputElement = input.dyn_into().unwrap();
+        input_element.set_value("Joined Connection");
+        input_element.dispatch_event(&web_sys::Event::new("input").unwrap()).unwrap();
+        
+        // Find and click OK button
+        let ok_button = document()
+            .query_selector("[data-test-id='connection-submit-button']")
+            .unwrap()
+            .expect("Should find OK button");
+            
+        ok_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for the connection to be joined
+        let _ = gloo_timers::future::TimeoutFuture::new(500).await;
+        
+        // Verify the connection item is added to the list with Active status
+        let status_button = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap();
+            
+        assert!(status_button.is_some(), "Should add one connection to the list with a status button");
+        
+        // Check the status button text
+        let status = document()
+            .query_selector("[data-test-id='connection-status']")
+            .unwrap()
+            .expect("Should find connection status element");
+            
+        assert_eq!(status.text_content().unwrap().trim(), "Active");
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_join_connection_error() {
+        // Set up our mocks
+        setup_test_mocks();
+        
+        // Create a guard that will clean up when the test is done
+        struct CleanupGuard;
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                cleanup_test_mocks();
+            }
+        }
+        let _guard = CleanupGuard;
+        
+        // Add error-test to URL which will trigger our error mock
+        let win = web_sys::window().unwrap();
+        let history = win.history().unwrap();
+        history.push_state_with_url(
+            &JsValue::NULL,
+            "",
+            Some("/?link=error-test")
+        ).unwrap();
+        
+        // Mount the component (should auto-open the modal with the link)
+        mount_to_body(|| view! { <FriendsConnect /> });
+        
+        // Wait for modal
+        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
+        
+        // Set connection name
+        let input = document()
+        .query_selector("[data-test-id='connection-name-input']")
+            .unwrap()
+            .expect("Should find input field");
+            
+        let input_element: web_sys::HtmlInputElement = input.dyn_into().unwrap();
+        input_element.set_value("Joined Connection");
+        input_element.dispatch_event(&web_sys::Event::new("input").unwrap()).unwrap();
+        
+        // Find and click OK button
+        let ok_button = document()
+            .query_selector("[data-test-id='connection-submit-button']")
+            .unwrap()
+            .expect("Should find OK button");
+            
+        ok_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
+        
+        // Wait for the error to appear
+        let _ = gloo_timers::future::TimeoutFuture::new(500).await;
+        
+        // Verify the error message is shown
+        let error_div = document()
+            .query_selector(".bg-red-900")
+            .unwrap()
+            .expect("Should find error message");
+            
+        assert!(error_div.text_content().unwrap().contains("Connection already has maximum players"));
     }
 
     #[wasm_bindgen_test]
@@ -1048,7 +1407,7 @@ mod tests {
         
         // Open modal
         let button = document()
-            .query_selector("button")
+        .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
         button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
@@ -1079,7 +1438,7 @@ mod tests {
         
         // Click button to show modal
         let button = document()
-            .query_selector("button")
+        .query_selector("[data-test-id='new-connection-button']")
             .unwrap()
             .expect("Should find New Connection button");
         button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();

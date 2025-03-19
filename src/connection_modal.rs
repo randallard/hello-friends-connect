@@ -175,7 +175,9 @@ pub fn ConnectionModal(
                                 view! { <></> }.into_any()
                             }
                         }}
-                        <label class="block text-sm font-medium mb-1 text-gray-200">
+                        <label
+                            data-test-id="new-connection-name" 
+                            class="block text-sm font-medium mb-1 text-gray-200">
                              "Connect to:"
                         </label>
                         <input
@@ -236,6 +238,7 @@ pub fn ConnectionModal(
 
                     <div class="flex justify-end gap-4 mt-4">
                         <button
+                            data-test-id="connection-modal-cancel-button"
                             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
                             on:click=move |_| {
                                 on_cancel.run(());
