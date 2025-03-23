@@ -214,19 +214,16 @@ pub fn ConnectionItem(
                 }
             }}
     
-            // Fix View modal for pending connections - properly capture reactive values
+            // View modal for connections - fix to ensure link_id is displayed
             {move || {
                 if show_view_modal.get() && is_valid.get() {
-                    // Clone connection_name to use it in the create_signal
-                    let name_value = connection_name.get();
-                    let name_signal = create_signal(name_value);
-                    
-                    // Get the current connection from the signal - create a clone to avoid reactivity issues
+                    // Get the current connection from the signal
                     let current_connection = connection_signal.get();
+                    let name_value = connection_name.get();
                     
                     view! {
                         <ConnectionModal
-                            connection_name=name_signal.0
+                            connection_name=create_signal(name_value).0
                             show_name_error=create_signal(false).0
                             is_view_mode=true
                             connection_link_id=current_connection.link_id.clone()
@@ -476,10 +473,8 @@ mod tests {
             status: ConnectionStatus::Pending,
             expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
         };
-
-        let tc_clone = test_connection.clone();
         
-        // Mount the component
+        // Mount the component with mocks set up
         mount_to_body(move || view! {
             <ConnectionItem
                 connection=test_connection.clone()
@@ -502,19 +497,36 @@ mod tests {
         // Wait for modal to appear
         let _ = gloo_timers::future::TimeoutFuture::new(100).await;
         
+        // Log the entire DOM for debugging
+        if let Some(document_element) = document().document_element() {
+            web_sys::console::log_1(&JsValue::from_str(
+                &format!("Current DOM: {}", document_element.outer_html())
+            ));
+        }
+        
         // Verify the modal shows the connection link ID
-        // The link ID should appear in the modal content
         let modal_content = document()
             .query_selector(".bg-gray-800")
             .unwrap()
             .expect("Should find modal content");
             
-        let all_text = modal_content.text_content().unwrap();
-        assert!(all_text.contains(&tc_clone.link_id), "Modal should display the connection link ID");
+        let link_input = modal_content
+            .query_selector("input[readonly]")
+            .unwrap()
+            .expect("Should find read-only link input");
+            
+        let input_value = link_input
+            .dyn_ref::<web_sys::HtmlInputElement>()
+            .expect("Should be an input element")
+            .value();
+            
+        // The test_link_789 should be part of the URL displayed in the input
+        assert!(input_value.contains("test-link-789"), 
+                "Modal should display the connection link ID. Got: {}", input_value);
         
         // Close the modal
         let cancel_button = document()
-            .query_selector("[data-test-id='cancel-connection-button']")
+            .query_selector("[data-test-id='connection-modal-cancel-button']")
             .unwrap()
             .expect("Should find cancel button");
             
@@ -527,5 +539,4 @@ mod tests {
         let modal = document().query_selector(".fixed").unwrap();
         assert!(modal.is_none(), "Modal should be closed after clicking cancel");
     }    
-
 }
