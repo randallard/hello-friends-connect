@@ -182,6 +182,7 @@ pub fn ConnectionModal(
                         </label>
                         <input
                             type="text"
+                            data-test-id="connection-name-input"
                             class="w-full px-4 py-2 rounded bg-gray-900 border border-gray-700 text-gray-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                             prop:value=connection_name
                             prop:disabled=is_view_mode

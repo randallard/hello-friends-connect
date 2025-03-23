@@ -7,6 +7,20 @@ use js_sys::{Promise, JSON, Object};
 use crate::connect_component::{Connection, ConnectionStatus};
 use crate::config::get_config; 
 use uuid::Uuid;
+use std::pin;
+use std::future::Future;
+
+#[cfg(test)]
+use std::sync::Once;
+
+#[cfg(test)]
+static INIT: Once = Once::new();
+
+#[cfg(test)]
+pub static mut MOCK_CREATE_CONNECTION: Option<Box<dyn Fn(&str) -> pin::Pin<Box<dyn Future<Output = Result<Connection, JsValue>>>>>> = None;
+
+#[cfg(test)]
+pub static mut MOCK_JOIN_CONNECTION: Option<Box<dyn Fn(&str, &str) -> pin::Pin<Box<dyn Future<Output = Result<Connection, JsValue>>>>>> = None;
 
 pub fn get_api_base() -> String {
     get_config().api_base_url.clone()
@@ -48,6 +62,14 @@ fn console_log(msg: &str) {
 }
 
 pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
+    #[cfg(test)]
+    {
+        if let Some(mock) = unsafe { MOCK_CREATE_CONNECTION.as_ref() } {
+            return mock(player_id).await;
+        }
+    }
+    
+    // Real implementation follows...
     console_log(&format!("Creating connection for player: {}", player_id));
     
     let mut opts = RequestInit::new();
@@ -119,6 +141,13 @@ pub async fn create_connection(player_id: &str) -> Result<Connection, JsValue> {
 }
 
 pub async fn join_connection(link_id: &str, player_id: &str) -> Result<Connection, JsValue> {
+    #[cfg(test)]
+    {
+        if let Some(mock) = unsafe { MOCK_JOIN_CONNECTION.as_ref() } {
+            return mock(link_id, player_id).await;
+        }
+    }
+    
     console_log(&format!("Joining connection with link ID: {} for player: {}", link_id, player_id));
     
     let mut opts = RequestInit::new();
@@ -460,3 +489,4 @@ pub async fn send_message(connection_id: &str, player_id: &str, content: &str) -
     
     Ok(())
 }
+

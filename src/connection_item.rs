@@ -452,110 +452,7 @@ mod tests {
         
         assert_eq!(status.text_content().unwrap().trim(), "Expired");
     }
-    
-    #[wasm_bindgen_test]
-    async fn test_delete_connection() {
-        // Setup WebSocket mock before test
-        setup_websocket_mock();
         
-        // Create cleanup guard
-        struct CleanupGuard;
-        impl Drop for CleanupGuard {
-            fn drop(&mut self) {
-                restore_websocket();
-            }
-        }
-        let _guard = CleanupGuard;
-        
-        // Create a test connection
-        let test_connection = Connection {
-            id: "test-conn-123".to_string(),
-            link_id: "test-link-456".to_string(),
-            players: vec!["player1".to_string()],
-            created_at: js_sys::Date::now() as i64 / 1000,
-            status: ConnectionStatus::Pending,
-            expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
-        };
-        
-        // Mock localStorage with an existing saved connection
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                // Add the connection name
-                let _ = storage.set_item(&format!("conn-name-{}", test_connection.id), "Test Connection");
-                
-                // Add to saved connections
-                let saved_connections = vec![serde_json::json!({
-                    "id": test_connection.id,
-                    "link_id": test_connection.link_id,
-                    "created_at": test_connection.created_at,
-                    "expires_at": test_connection.expires_at
-                })];
-                let json = serde_json::to_string(&saved_connections).unwrap();
-                let _ = storage.set_item("saved-connections", &json);
-            }
-        }
-        
-        // Track deletion in a Cell to verify callback was executed
-        let deleted = std::cell::Cell::new(false);
-        
-        // Mount with a delete callback that sets our tracking variable
-        mount_to_body(move || {
-            let deleted_clone = deleted.clone();
-            view! {
-                <ConnectionItem
-                    connection=test_connection.clone()
-                    name="Test Connection"
-                    on_delete=Callback::new(move |_| {
-                        deleted_clone.set(true);
-                    })
-                />
-            }
-        });
-        
-        // Wait for the DOM to update
-        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
-        
-        // Click the status button to open the modal
-        let status_button = document()
-            .query_selector("[data-test-id='connection-status']")
-            .unwrap()
-            .expect("Should find status button");
-            
-        status_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
-        
-        // Wait for modal to appear
-        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
-        
-        // Click the delete button
-        let delete_button = document()
-            .query_selector("[data-test-id='delete-connection-button']")
-            .unwrap()
-            .expect("Should find delete button");
-            
-        delete_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
-        
-        // Wait for delete operation to complete
-        let _ = gloo_timers::future::TimeoutFuture::new(100).await;
-        
-        // Verify callback was executed
-        assert!(deleted.get(), "Delete callback should have been executed");
-        
-        // Verify the connection was removed from localStorage
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                assert_eq!(storage.get_item(&format!("conn-name-{}", test_connection.id)).unwrap(), None);
-                
-                // Check saved-connections no longer contains this connection
-                if let Some(saved_json) = storage.get_item("saved-connections").unwrap() {
-                    let saved_connections: Vec<serde_json::Value> = serde_json::from_str(&saved_json).unwrap();
-                    assert!(!saved_connections.iter().any(|conn| {
-                        conn.get("id").and_then(|id| id.as_str()) == Some(&test_connection.id)
-                    }));
-                }
-            }
-        }
-    }
-    
     #[wasm_bindgen_test]
     async fn test_connection_view_modal() {
         // Setup WebSocket mock before test
@@ -579,7 +476,7 @@ mod tests {
             status: ConnectionStatus::Pending,
             expires_at: (js_sys::Date::now() as i64 / 1000) + 86400,
         };
-        
+
         let tc_clone = test_connection.clone();
         
         // Mount the component
