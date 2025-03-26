@@ -631,7 +631,7 @@ pub fn FriendsConnect() -> impl IntoView {
                 when=move || !api_error.get().is_empty()
                 fallback=|| view! { <></> }
             >
-                <div class="bg-red-900 text-red-100 p-4 rounded mb-4">
+                <div data-test-id="connection-error" class="bg-red-900 text-red-100 p-4 rounded mb-4">
                     {move || api_error.get()}
                 </div>
             </Show>
@@ -988,6 +988,18 @@ mod tests {
             
             // For join connection endpoint
             if (urlStr.includes('/connections/link/') && urlStr.includes('/join') && options.method === 'POST') {
+                // Check if we should simulate an error based on URL
+                if (urlStr.includes('error-test')) {
+                    console.log('Returning error response for error-test URL');
+                    return Promise.resolve({
+                        ok: false,
+                        json: () => Promise.reject(new Error("Not JSON")),
+                        text: () => Promise.resolve(JSON.stringify({error: "Connection already has maximum players"})),
+                        status: 400,
+                        statusText: "Bad Request"
+                    });
+                }
+                
                 const mockResponse = {
                     connection: {
                         id: "mock-conn-456",
@@ -999,16 +1011,6 @@ mod tests {
                     },
                     websocket_url: "wss://mock-server.com/ws"
                 };
-                
-                // Check if we should simulate an error based on URL
-                if (urlStr.includes('error-test')) {
-                    return Promise.resolve({
-                        ok: false,
-                        text: () => Promise.resolve(JSON.stringify({error: "Connection already has maximum players"})),
-                        status: 400,
-                        statusText: "Bad Request"
-                    });
-                }
                 
                 return Promise.resolve({
                     ok: true,
@@ -1042,7 +1044,7 @@ mod tests {
         js_sys::Reflect::set(&window, &JsValue::from_str("originalFetch"), &window.get("fetch").unwrap()).unwrap();
         js_sys::Reflect::set(&window, &JsValue::from_str("fetch"), &mock_fetch).unwrap();
     }
-    
+
     // Restore original fetch after test
     fn restore_fetch() {
         if let Some(window) = web_sys::window() {
@@ -1431,9 +1433,14 @@ mod tests {
         // Wait for modal
         let _ = gloo_timers::future::TimeoutFuture::new(100).await;
         
+        // Log the DOM for debugging
+        if let Some(html) = document().document_element() {
+            web_sys::console::log_1(&JsValue::from_str(&format!("Modal DOM: {}", html.outer_html())));
+        }
+        
         // Set connection name
         let input = document()
-        .query_selector("[data-test-id='connection-name-input']")
+            .query_selector("[data-test-id='connection-name-input']")
             .unwrap()
             .expect("Should find input field");
             
@@ -1449,16 +1456,29 @@ mod tests {
             
         ok_button.dispatch_event(&web_sys::Event::new("click").unwrap()).unwrap();
         
-        // Wait for the error to appear
-        let _ = gloo_timers::future::TimeoutFuture::new(500).await;
+        // Wait longer for the error to appear (500ms -> 1000ms)
+        let _ = gloo_timers::future::TimeoutFuture::new(1000).await;
+        
+        // Log the error div with specific test id
+        let error_div = document().query_selector("[data-test-id='connection-error']").unwrap();
+        if let Some(div) = &error_div {
+            let text = div.text_content().unwrap_or_default();
+            web_sys::console::log_1(&JsValue::from_str(&format!("Error div content: {}", text)));
+        } else {
+            web_sys::console::log_1(&JsValue::from_str("Could not find error div with test id"));
+        }
         
         // Verify the error message is shown
         let error_div = document()
-            .query_selector(".bg-red-900")
+            .query_selector("[data-test-id='connection-error']")
             .unwrap()
-            .expect("Should find error message");
+            .expect("Should find error message with data-test-id");
             
-        assert!(error_div.text_content().unwrap().contains("Connection already has maximum players"));
+        let error_text = error_div.text_content().unwrap_or_default();
+        web_sys::console::log_1(&JsValue::from_str(&format!("Error text: {}", error_text)));
+        
+        assert!(error_text.contains("Connection already has maximum players"), 
+                "Error message should mention 'Connection already has maximum players', but got: {}", error_text);
     }
 
     #[wasm_bindgen_test]
