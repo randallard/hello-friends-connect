@@ -242,6 +242,7 @@ pub fn ConnectionModal(
                             data-test-id="connection-modal-cancel-button"
                             class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
                             on:click=move |_| {
+                                console::log_1(&wasm_bindgen::JsValue::from_str("Cancel button clicked"));
                                 on_cancel.run(());
                             }
                         >

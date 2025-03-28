@@ -62,7 +62,11 @@ trunk serve --open
 
 Run WASM tests:
 ```bash
+# if you just have a few tests
 wasm-pack test --headless --firefox
+
+# if you have a bunch and need the output to show in a separate file
+wasm-pack test --headless --firefox 2>&1 | Tee-Object -FilePath test_output.log
 ```
 on the first run this failed to test - but a firefox update ran automatically and I ran the command again successfully
 
